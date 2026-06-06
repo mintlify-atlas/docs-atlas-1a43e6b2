@@ -1,0 +1,177 @@
+---
+title: "Attributes and Artist: LRC metadata types"
+sidebarTitle: "Attributes"
+description: "Attributes holds parsed LRC metadata: title, artist, album, timing offset, and duration. Artist represents a single credited artist with a type and name."
+---
+
+LRC files can carry a small set of metadata tags at the top of the file. Accompanist Lyrics Core parses these into two data classes: `Attributes`, which holds the song-level metadata fields, and `Artist`, which represents a single credited performer. While `Attributes` is produced internally by the parser's metadata helper, its values are surfaced directly on [`SyncedLyrics`](/api/synced-lyrics) — you access the title through `lyrics.title` and the artist list through `lyrics.artists`.
+
+---
+
+## Attributes
+
+`Attributes` maps the five standard LRC metadata tags to typed Kotlin properties. Every field is nullable and defaults to `null`, since any tag may be absent in a given file.
+
+```kotlin
+data class Attributes(
+    val artist: String? = null,
+    val album: String? = null,
+    val title: String? = null,
+    val offset: Int? = null,
+    val duration: Int? = null,
+)
+```
+
+### Constructor parameters
+
+<ParamField path="artist" type="String?" default="null">
+  The raw artist string from the `[ar:]` tag. When the file contains multiple artists they are represented as separate [`Artist`](#artist) objects on `SyncedLyrics.artists` rather than concatenated here.
+</ParamField>
+
+<ParamField path="album" type="String?" default="null">
+  Album name from the `[al:]` tag. `null` when the tag is absent.
+</ParamField>
+
+<ParamField path="title" type="String?" default="null">
+  Song title from the `[ti:]` tag. On `SyncedLyrics` this surfaces as the non-nullable `title` property (empty string when absent).
+</ParamField>
+
+<ParamField path="offset" type="Int?" default="null">
+  Global timing offset in milliseconds from the `[offset:]` tag. A positive value shifts all timestamps later; a negative value shifts them earlier. `null` when the tag is absent (no adjustment applied).
+</ParamField>
+
+<ParamField path="duration" type="Int?" default="null">
+  Total song duration in milliseconds from the `[length:]` tag. `null` when the tag is absent.
+</ParamField>
+
+### Properties
+
+<ResponseField name="artist" type="String?">
+  Raw artist string from `[ar:]`. `null` if not present in the file.
+</ResponseField>
+
+<ResponseField name="album" type="String?">
+  Album name from `[al:]`. `null` if not present.
+</ResponseField>
+
+<ResponseField name="title" type="String?">
+  Song title from `[ti:]`. `null` if not present.
+</ResponseField>
+
+<ResponseField name="offset" type="Int?">
+  Global timestamp offset in milliseconds from `[offset:]`. `null` when absent.
+</ResponseField>
+
+<ResponseField name="duration" type="Int?">
+  Total duration in milliseconds from `[length:]`. `null` when absent.
+</ResponseField>
+
+### LRC tag mapping
+
+| LRC tag | `Attributes` field | Type |
+|---|---|---|
+| `[ti:Song Title]` | `title` | `String?` |
+| `[ar:Artist Name]` | `artist` | `String?` |
+| `[al:Album Name]` | `album` | `String?` |
+| `[offset:200]` | `offset` | `Int?` (ms) |
+| `[length:210000]` | `duration` | `Int?` (ms) |
+
+### Relationship to `SyncedLyrics`
+
+`Attributes` is an internal type produced by the parser. After parsing, its values are promoted directly onto the [`SyncedLyrics`](/api/synced-lyrics) object:
+
+- `Attributes.title` → `SyncedLyrics.title` (non-nullable; empty string when absent)
+- `Attributes.artist` → `SyncedLyrics.artists` (parsed into a `List<Artist>`)
+
+You do **not** need to interact with `Attributes` directly when consuming a fully parsed `SyncedLyrics`.
+
+---
+
+## Artist
+
+`Artist` represents a single credited performer on a track. The `artists` list on `SyncedLyrics` contains one `Artist` per credited name.
+
+```kotlin
+data class Artist(
+    val type: String,
+    val name: String
+)
+```
+
+### Constructor parameters
+
+<ParamField path="type" type="String" required>
+  The role or category of the artist (e.g. `"main"`, `"featured"`, `"ar"`). The exact vocabulary depends on the source format — for standard LRC the type reflects the tag name used.
+</ParamField>
+
+<ParamField path="name" type="String" required>
+  The display name of the artist (e.g. `"Taylor Swift"`).
+</ParamField>
+
+### Properties
+
+<ResponseField name="type" type="String">
+  The artist role or category string.
+</ResponseField>
+
+<ResponseField name="name" type="String">
+  The artist display name.
+</ResponseField>
+
+---
+
+## Usage examples
+
+### Accessing metadata from `SyncedLyrics`
+
+```kotlin
+val lyrics: SyncedLyrics = parsedLyrics
+
+// Title is always non-nullable on SyncedLyrics
+println(lyrics.title)   // e.g. "Shake It Off"
+
+// artists is nullable — null means no artist info at all
+lyrics.artists?.forEach { artist ->
+    println("${artist.type}: ${artist.name}")
+    // e.g. "ar: Taylor Swift"
+}
+```
+
+### Guarding against absent artist info
+
+```kotlin
+val creditLine: String = when {
+    lyrics.artists.isNullOrEmpty() -> "Unknown artist"
+    else -> lyrics.artists!!.joinToString(", ") { it.name }
+}
+```
+
+### Example LRC file and resulting model
+
+```lrc
+[ti:Hello]
+[ar:Adele]
+[al:25]
+[offset:0]
+[length:295000]
+[00:25.73]Hello, it's me
+[00:31.40]I was wondering if after all these years
+```
+
+Parsing this file yields:
+
+```kotlin
+SyncedLyrics(
+    title = "Hello",
+    artists = listOf(Artist(type = "ar", name = "Adele")),
+    lines = listOf(
+        SyncedLine(content = "Hello, it's me", start = 25730, end = 31400, translation = null),
+        SyncedLine(content = "I was wondering if after all these years", start = 31400, end = ..., translation = null),
+    ),
+    id = "0"
+)
+```
+
+<Note>
+The `offset` and `duration` values from `Attributes` are consumed by the parser during processing. After parsing, the offset has already been applied to all line timestamps — there is no separate `offset` field on `SyncedLyrics`.
+</Note>

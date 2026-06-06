@@ -1,0 +1,216 @@
+---
+title: "SyncedLine and ISyncedLine: line-level lyrics types"
+sidebarTitle: "SyncedLine"
+description: "SyncedLine represents a single lyrics line with start/end timestamps and optional translation. ISyncedLine is the common interface for all line types."
+---
+
+Every lyrics line in Accompanist Lyrics Core implements `ISyncedLine`, the minimal interface that exposes timing information. `SyncedLine` is the concrete implementation used for line-level (non-karaoke) lyrics; `UncheckedSyncedLine` is a lenient variant produced during parsing before validation. Both classes carry the line's text content, an optional translation string, and the millisecond timestamps that bound the line on the playback timeline.
+
+---
+
+## ISyncedLine
+
+`ISyncedLine` is the common interface implemented by all line types — including [`SyncedLine`](#syncedline), [`UncheckedSyncedLine`](#uncheckedsyncedline), and the [`KaraokeLine`](/api/karaoke-line) hierarchy.
+
+```kotlin
+interface ISyncedLine {
+    val start: Int
+    val end: Int
+    val duration: Int
+}
+```
+
+<ResponseField name="start" type="Int">
+  Start time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="end" type="Int">
+  End time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="duration" type="Int">
+  Length of the line in milliseconds. Implementations compute this as `end - start`.
+</ResponseField>
+
+---
+
+## SyncedLine
+
+`SyncedLine` represents a fully validated, single line of lyrics with millisecond timestamps. The `init` block enforces `end >= start`; construction throws `IllegalArgumentException` if that constraint is violated.
+
+```kotlin
+data class SyncedLine(
+    val content: String,
+    val translation: String?,
+    override val start: Int,
+    override val end: Int,
+) : ISyncedLine {
+    override val duration = end - start
+    // init: requires end >= start
+}
+```
+
+### Constructor parameters
+
+<ParamField path="content" type="String" required>
+  The display text of the lyrics line.
+</ParamField>
+
+<ParamField path="translation" type="String?">
+  An optional translation of the line, or `null` if no translation is available.
+</ParamField>
+
+<ParamField path="start" type="Int" required>
+  Start time in milliseconds. Must be less than or equal to `end`.
+</ParamField>
+
+<ParamField path="end" type="Int" required>
+  End time in milliseconds. Must be greater than or equal to `start`; otherwise construction throws `IllegalArgumentException`.
+</ParamField>
+
+### Properties
+
+<ResponseField name="content" type="String">
+  The display text of the lyrics line.
+</ResponseField>
+
+<ResponseField name="translation" type="String?">
+  Optional translation string; `null` when not provided.
+</ResponseField>
+
+<ResponseField name="start" type="Int">
+  Start time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="end" type="Int">
+  End time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="duration" type="Int">
+  Computed as `end - start`. Always non-negative due to the `init` constraint.
+</ResponseField>
+
+### Extension method: `toKaraokeLine()`
+
+```kotlin
+fun SyncedLine.toKaraokeLine(): KaraokeLine
+```
+
+Converts this `SyncedLine` into a [`KaraokeLine.MainKaraokeLine`](/api/karaoke-line#mainkaraokeline) containing a single [`KaraokeSyllable`](/api/karaoke-syllable) that spans the full line duration. The syllable's `content` is set to `this.content`, and `alignment` is set to `KaraokeAlignment.Unspecified`.
+
+```kotlin
+val syncedLine = SyncedLine(
+    content = "Hello world",
+    translation = null,
+    start = 1000,
+    end = 3000
+)
+val karaokeLine: KaraokeLine = syncedLine.toKaraokeLine()
+// karaokeLine.syllables.size == 1
+// karaokeLine.syllables[0].content == "Hello world"
+// karaokeLine.alignment == KaraokeAlignment.Unspecified
+```
+
+---
+
+## UncheckedSyncedLine
+
+`UncheckedSyncedLine` is a lenient counterpart to `SyncedLine` used during parsing. It tolerates `end < start` by clamping `duration` to `0` rather than throwing. Call `toSyncedLine()` once the data is validated to obtain a checked `SyncedLine`.
+
+```kotlin
+data class UncheckedSyncedLine(
+    val content: String,
+    val translation: String?,
+    override val start: Int,
+    override val end: Int,
+) : ISyncedLine {
+    override val duration = (end - start).takeIf { it >= 0 } ?: 0
+
+    fun toSyncedLine(): SyncedLine
+}
+```
+
+### Constructor parameters
+
+<ParamField path="content" type="String" required>
+  The display text of the lyrics line.
+</ParamField>
+
+<ParamField path="translation" type="String?">
+  Optional translation string, or `null`.
+</ParamField>
+
+<ParamField path="start" type="Int" required>
+  Start time in milliseconds. May be greater than `end` without throwing.
+</ParamField>
+
+<ParamField path="end" type="Int" required>
+  End time in milliseconds.
+</ParamField>
+
+### Properties
+
+<ResponseField name="content" type="String">
+  The display text of the lyrics line.
+</ResponseField>
+
+<ResponseField name="translation" type="String?">
+  Optional translation; `null` when not provided.
+</ResponseField>
+
+<ResponseField name="start" type="Int">
+  Start time in milliseconds.
+</ResponseField>
+
+<ResponseField name="end" type="Int">
+  End time in milliseconds.
+</ResponseField>
+
+<ResponseField name="duration" type="Int">
+  `end - start` if non-negative, otherwise `0`. Never negative.
+</ResponseField>
+
+### Method: `toSyncedLine()`
+
+```kotlin
+fun toSyncedLine(): SyncedLine
+```
+
+Converts this `UncheckedSyncedLine` to a `SyncedLine`. The resulting `SyncedLine` enforces `end >= start`; call this only after confirming the timestamps are valid, or wrap in a try/catch.
+
+```kotlin
+val unchecked = UncheckedSyncedLine(
+    content = "Verse one",
+    translation = null,
+    start = 500,
+    end = 2000
+)
+val checked: SyncedLine = unchecked.toSyncedLine()
+```
+
+---
+
+## Usage examples
+
+### Rendering a plain lyrics line
+
+```kotlin
+val line: SyncedLine = lyrics.lines.filterIsInstance<SyncedLine>().first()
+
+Text(text = line.content)
+line.translation?.let { Text(text = it, style = MaterialTheme.typography.bodySmall) }
+```
+
+### Checking whether a line is active
+
+```kotlin
+fun SyncedLine.isActive(positionMs: Int): Boolean =
+    positionMs in start..end
+```
+
+### Upcasting through ISyncedLine
+
+```kotlin
+val line: ISyncedLine = lyrics.lines[0]
+println("Active window: ${line.start}ms – ${line.end}ms (${line.duration}ms)")
+```

@@ -1,0 +1,151 @@
+---
+title: "ILyricsExporter: implement a custom lyrics exporter"
+sidebarTitle: "ILyricsExporter"
+description: "ILyricsExporter defines a single export() method for converting a SyncedLyrics object to a string representation of any target format."
+---
+
+`ILyricsExporter` is the interface every lyrics exporter implements. It exposes a single `export` method that takes a parsed [`SyncedLyrics`](/api/synced-lyrics) object and serialises it into a target string format such as LRC, Enhanced LRC, or TTML. Implementing this interface is the standard way to add export support for any custom lyrics format.
+
+## Interface definition
+
+```kotlin
+interface ILyricsExporter {
+    fun export(lyrics: SyncedLyrics): String
+}
+```
+
+## Methods
+
+### `export`
+
+```kotlin
+fun export(lyrics: SyncedLyrics): String
+```
+
+Converts the given `SyncedLyrics` object into a string representation of the target format.
+
+<ParamField path="lyrics" type="SyncedLyrics" required>
+  The parsed lyrics data to export. Contains a list of `ISyncedLine` entries (either `SyncedLine` or `KaraokeLine`) along with optional metadata such as title and artists.
+</ParamField>
+
+**Returns** a `String` containing the full serialised lyrics in the target format, ready to be written to a file or transmitted over a network.
+
+## Built-in exporters
+
+All built-in exporters are `object` singletons — no instantiation is needed.
+
+<CardGroup cols={3}>
+  <Card title="LrcExporter" icon="file-lines">
+    Exports to standard LRC with line-level timestamps. Drops syllable timing data.
+  </Card>
+  <Card title="EnhancedLrcExporter" icon="music">
+    Exports to Enhanced LRC with `<mm:ss.xx>` syllable timestamps and background vocal blocks.
+  </Card>
+  <Card title="TTMLExporter" icon="code">
+    Exports to TTML/Apple Music XML, preserving syllable timing, phonetics, and span attributes.
+  </Card>
+</CardGroup>
+
+## Implementing a custom exporter
+
+Implement `ILyricsExporter` as an `object` when your exporter holds no state, or as a `class` when it needs configuration.
+
+```kotlin
+object MyExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String {
+        val sb = StringBuilder()
+        for (line in lyrics.lines) {
+            // build your format
+        }
+        return sb.toString()
+    }
+}
+```
+
+### Handling line types
+
+A `SyncedLyrics.lines` list contains entries of type `ISyncedLine`. The two concrete types are `SyncedLine` (plain timed text) and `KaraokeLine` (syllable-timed). Use a `when` block to handle both:
+
+```kotlin
+object MyExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String {
+        val sb = StringBuilder()
+
+        for (line in lyrics.lines) {
+            when (line) {
+                is KaraokeLine.MainKaraokeLine -> {
+                    // Syllable-level timing available
+                    sb.append(formatTimestamp(line.start))
+                    for (syllable in line.syllables) {
+                        sb.append(formatTimestamp(syllable.start))
+                        sb.append(syllable.content)
+                    }
+                    sb.append("\n")
+                }
+                is SyncedLine -> {
+                    // Line-level timing only
+                    sb.append(formatTimestamp(line.start))
+                    sb.append(line.content)
+                    sb.append("\n")
+                }
+                else -> { /* handle other subtypes if needed */ }
+            }
+        }
+
+        return sb.toString()
+    }
+
+    private fun formatTimestamp(ms: Int): String {
+        val minutes = ms / 60000
+        val seconds = (ms % 60000) / 1000
+        val centiseconds = (ms % 1000) / 10
+        return "[%02d:%02d.%02d]".format(minutes, seconds, centiseconds)
+    }
+}
+```
+
+<Tip>
+  `line.start` and `line.end` are both expressed in **milliseconds** as `Int` values. Convert to your format's time unit inside the exporter — for example, divide by `10` for centiseconds (LRC) or format directly as `HH:MM:SS.mmm` for TTML.
+</Tip>
+
+### Including metadata
+
+`SyncedLyrics` carries optional metadata you can embed in format headers:
+
+```kotlin
+object MyExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String {
+        val sb = StringBuilder()
+
+        // Write header block
+        if (lyrics.title.isNotEmpty()) sb.appendLine("[ti:${lyrics.title}]")
+        for (artist in lyrics.artists) sb.appendLine("[ar:${artist.name}]")
+
+        // Write lyric lines …
+
+        return sb.toString()
+    }
+}
+```
+
+<Warning>
+  Not all formats support both `SyncedLine` and `KaraokeLine`. If your target format only supports line-level timing, fall back to `line.start` for the timestamp and concatenate `syllable.content` values for the text — syllable boundaries will be lost but the output will remain valid.
+</Warning>
+
+## Using an exporter
+
+```kotlin
+val lyrics: SyncedLyrics = AutoParser().parse(rawContent)
+
+// Built-in exporter — object singleton, call directly
+val lrcOutput: String = LrcExporter.export(lyrics)
+
+// Custom exporter
+val myOutput: String = MyExporter.export(lyrics)
+```
+
+## See also
+
+- [Exporters overview](/exporters/overview) — comparison of all built-in exporters
+- [SyncedLyrics](/api/synced-lyrics) — the data model passed to `export()`
+- [ILyricsParser](/api/ilyrics-parser) — the complementary parser interface

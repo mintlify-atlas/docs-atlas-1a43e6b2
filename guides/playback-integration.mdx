@@ -1,0 +1,147 @@
+---
+title: "Integrate lyrics with real-time playback highlighting"
+sidebarTitle: "Playback Integration"
+description: "Use SyncedLyrics timing methods and KaraokeLine progress helpers to synchronize lyrics highlighting with audio playback position in your player UI."
+---
+
+Accompanist Lyrics Core separates parsing from rendering: the library gives you structured timing data, and your UI layer decides how to visualise it. `SyncedLyrics` provides efficient binary-search methods to find the active line at any playback position, while `KaraokeLine` and `KaraokeSyllable` expose `progress()` helpers that produce the 0.0–1.0 float values your animation system needs.
+
+<Note>
+  All time values throughout the library — `start`, `end`, `duration`, and every method parameter — are in **milliseconds**.
+</Note>
+
+## Integration walkthrough
+
+<Steps>
+
+### Get the current line index by playback time
+
+`SyncedLyrics` exposes two methods for resolving the active line from a playback position:
+
+```kotlin
+// Returns the index of the single first-matching line — covers the vast majority of use cases.
+val currentIndex = lyrics.getCurrentFirstHighlightLineIndexByTime(currentTimeMs)
+
+// Returns indices of ALL lines active at this moment — needed for overlapping or duet tracks.
+val activeIndices = lyrics.getCurrentAllHighlightLineIndicesByTime(currentTimeMs)
+```
+
+Both methods perform a **binary search** over the sorted `lines` list, making them safe to call on every rendered frame without measurable overhead even for very long tracks.
+
+<Tip>
+  `getCurrentFirstHighlightLineIndexByTime` returns an index into `lyrics.lines`. Guard your access with `getOrNull` to handle the edge case where time falls before the first line or after the last.
+</Tip>
+
+### Poll on each playback tick
+
+Connect your media player's position callback (or a timer at ~60 fps) to a function that queries the current index and updates your UI state:
+
+```kotlin
+// Called ~60 fps or whenever the playback position changes
+fun onPlaybackTick(currentTimeMs: Int) {
+    val currentIndex = lyrics.getCurrentFirstHighlightLineIndexByTime(currentTimeMs)
+    val currentLine = lyrics.lines.getOrNull(currentIndex)
+    // Update UI state to highlight currentLine
+}
+```
+
+The index is all you need to drive a scroll-to or highlight in a list. The line object itself carries every piece of information required for more detailed rendering.
+
+### Animate karaoke syllable highlighting
+
+When the current line is a `KaraokeLine.MainKaraokeLine`, you can drive per-syllable fill animations using the `progress()` method on both the line and each of its syllables:
+
+```kotlin
+if (currentLine is KaraokeLine.MainKaraokeLine) {
+    // Overall progress of the line — useful for a background progress bar.
+    val lineProgress = currentLine.progress(currentTimeMs) // 0.0f to 1.0f
+
+    // True while currentTimeMs is within start..end of the line.
+    val isFocused = currentLine.isFocused(currentTimeMs)
+
+    for (syllable in currentLine.syllables) {
+        // Per-syllable progress — drive your highlight clip or colour lerp here.
+        val syllableProgress = syllable.progress(currentTimeMs) // 0.0f to 1.0f
+        // Apply syllableProgress to your animation
+    }
+}
+```
+
+`progress()` is defined on both `KaraokeLine` (the sealed interface) and `KaraokeSyllable`, so the same call pattern works for line-level and syllable-level animation without branching.
+
+<Info>
+  `progress()` always clamps its return value to `[0.0, 1.0]`, so you can pass it directly to animation APIs without additional clamping.
+</Info>
+
+### Handle duet and multi-voice lines
+
+For tracks where two singers overlap, use `getCurrentAllHighlightLineIndicesByTime` and read the `alignment` property to position each singer's line in your UI:
+
+```kotlin
+val activeIndices = lyrics.getCurrentAllHighlightLineIndicesByTime(currentTimeMs)
+
+for (index in activeIndices) {
+    val line = lyrics.lines[index]
+    if (line is KaraokeLine) {
+        when (line.alignment) {
+            KaraokeAlignment.Start       -> { /* position at leading edge (e.g. left) */ }
+            KaraokeAlignment.End         -> { /* position at trailing edge (e.g. right) */ }
+            KaraokeAlignment.Unspecified -> { /* use default centre position */ }
+        }
+    }
+}
+```
+
+### Render background / accompaniment vocal lines
+
+`KaraokeLine.MainKaraokeLine` can carry a list of `accompanimentLines` for background vocals that overlap with the main vocal. Render them separately to keep the foreground and background vocals visually distinct:
+
+```kotlin
+if (currentLine is KaraokeLine.MainKaraokeLine) {
+    currentLine.accompanimentLines?.forEach { bgLine ->
+        val bgProgress = bgLine.progress(currentTimeMs)
+        // Render background vocal highlight using bgProgress
+    }
+}
+```
+
+`AccompanimentKaraokeLine` implements the full `KaraokeLine` interface, so `progress()`, `isFocused()`, `syllables`, `alignment`, and `phonetic` are all available on it too.
+
+</Steps>
+
+## Controlling line visibility with `isFocused`
+
+`isFocused(current: Int)` returns `true` while the playback position falls within a line's `start..end` range. Use it to decide when to bring a line into the visible portion of your scroll container and when to fade it out:
+
+```kotlin
+val shouldShow = currentLine.isFocused(currentTimeMs)
+```
+
+<Tip>
+  Combine `isFocused` with a small lead-in offset (e.g. pre-scroll to the next line 300–500 ms before it starts) for a smooth lyrics-following experience.
+</Tip>
+
+## Handling simple synced lines
+
+Not all content has karaoke syllable data. When a line is a `SyncedLine` rather than a `KaraokeLine`, you only have `start`, `end`, and `duration` — no `progress()` helper. A simple active/inactive highlight based on `currentIndex` is the right approach:
+
+```kotlin
+val currentIndex = lyrics.getCurrentFirstHighlightLineIndexByTime(currentTimeMs)
+
+lyrics.lines.forEachIndexed { index, line ->
+    val isActive = index == currentIndex
+    // Apply active/inactive style to each line in your list
+}
+```
+
+## Quick reference
+
+| Task | API |
+|---|---|
+| Find the highlighted line index | `lyrics.getCurrentFirstHighlightLineIndexByTime(ms)` |
+| Find all active line indices (duet) | `lyrics.getCurrentAllHighlightLineIndicesByTime(ms)` |
+| Line fill animation progress | `karaokeLine.progress(ms)` → `Float` |
+| Syllable fill animation progress | `karaokeSyllable.progress(ms)` → `Float` |
+| Is this line currently active? | `karaokeLine.isFocused(ms)` → `Boolean` |
+| Singer side / alignment | `karaokeLine.alignment` → `KaraokeAlignment` |
+| Background vocal lines | `mainKaraokeLine.accompanimentLines` |

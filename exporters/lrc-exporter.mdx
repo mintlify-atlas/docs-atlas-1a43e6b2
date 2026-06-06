@@ -1,0 +1,120 @@
+---
+title: "LrcExporter: convert SyncedLyrics to standard LRC"
+sidebarTitle: "LRC Exporter"
+description: "LrcExporter converts a SyncedLyrics object to standard LRC format with line-level timestamps, ID3 tags, and optional translation lines."
+---
+
+`LrcExporter` serializes a `SyncedLyrics` object into the standard LRC format — plain-text, line-level timestamps, and optional ID3 metadata tags. It is the right choice whenever maximum compatibility with media players and lyrics apps matters more than preserving syllable-level karaoke data.
+
+## Signature
+
+`LrcExporter` is a Kotlin `object` (singleton) that implements `ILyricsExporter`:
+
+```kotlin
+object LrcExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String
+}
+```
+
+Pass a `SyncedLyrics` instance; receive a fully-formed LRC string. If `lyrics.lines` is empty, the method returns an empty string immediately.
+
+## Usage
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.LrcExporter
+
+val lrcString = LrcExporter.export(lyrics)
+
+// Write to a file
+File("track.lrc").writeText(lrcString)
+```
+
+## Output structure
+
+The exported string follows this layout:
+
+1. **ID3 tags** — emitted first if the corresponding metadata is non-blank.
+2. **Lyric lines** — one `[mm:ss.xxx]text` line per entry in `SyncedLyrics.lines`.
+3. **Translation lines** — immediately after their primary line, sharing the same timestamp.
+
+```
+[ti:Song Title]
+[ar:Artist Name]
+[00:12.340]First line of lyrics
+[00:12.340]Translation of first line
+[00:23.450]Second line of lyrics
+```
+
+### ID3 tags
+
+| Tag | Source field | Condition |
+|---|---|---|
+| `[ti:...]` | `SyncedLyrics.title` | Emitted when `title` is not blank |
+| `[ar:...]` | `SyncedLyrics.artists` | Emitted when the list is non-null, non-empty, and every artist name is non-blank; multiple artists joined with `/` |
+
+### Timestamps
+
+Each line's timestamp uses `[mm:ss.xxx]` notation derived from `SyncedLine.start` (milliseconds).
+
+### Translation lines
+
+When a `SyncedLine` carries a non-null `translation` string, `LrcExporter` writes a second line with the **same timestamp** immediately below the primary line. This mirrors the convention used by many LRC editors and streaming services.
+
+## KaraokeLine downsampling
+
+<Warning>
+  `LrcExporter` does **not** preserve syllable timing. Any `KaraokeLine` in the source is converted to a plain `SyncedLine` via `toSyncedLine()` before serialization. All word-level timestamps and background vocal (`AccompanimentKaraokeLine`) data are discarded. Use `EnhancedLrcExporter` if you need to keep that information.
+</Warning>
+
+The conversion merges all syllable content into a single `content` string and retains only the line-level `start` and `end` times.
+
+## Full example
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.LrcExporter
+import com.mocharealm.accompanist.lyrics.core.model.Artist
+import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
+import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
+
+val lyrics = SyncedLyrics(
+    title = "Song Title",
+    artists = listOf(Artist(name = "Artist Name")),
+    lines = listOf(
+        SyncedLine(
+            content = "First line of lyrics",
+            translation = "Translation of first line",
+            start = 12_340,
+            end = 23_450
+        ),
+        SyncedLine(
+            content = "Second line of lyrics",
+            translation = null,
+            start = 23_450,
+            end = 34_560
+        )
+    )
+)
+
+val lrcString = LrcExporter.export(lyrics)
+println(lrcString)
+```
+
+Expected output:
+
+```
+[ti:Song Title]
+[ar:Artist Name]
+[00:12.340]First line of lyrics
+[00:12.340]Translation of first line
+[00:23.450]Second line of lyrics
+```
+
+## When to use `LrcExporter`
+
+- You need the output to play in any media player or lyrics app without special support.
+- The source lyrics use only line-level timing (i.e. `SyncedLine` objects with no syllable data).
+- You are converting from a richer format (TTML, Enhanced LRC) and syllable detail is not required downstream.
+
+<Info>
+  For syllable-level karaoke output that stays in plain-text LRC, use [`EnhancedLrcExporter`](/exporters/enhanced-lrc-exporter). For an Apple Music–compatible XML document, use [`TTMLExporter`](/exporters/ttml-exporter).
+</Info>

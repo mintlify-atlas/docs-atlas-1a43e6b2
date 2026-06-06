@@ -1,0 +1,131 @@
+---
+title: "Parse Lyricify Syllable format lyrics"
+sidebarTitle: "Lyricify Syllable"
+description: "LyricifySyllableParser parses the Lyricify Syllable format used by Lyricify App, with syllable timing using (start_ms, duration_ms) notation and alignment codes."
+---
+
+Lyricify Syllable is the proprietary syllable-timing format used by the [Lyricify App](https://github.com/WXRIW/Lyricify-App). Each syllable is encoded as `word(startMs,durationMs)` inline with the lyric text, and an optional `[n]` attribute code at the start of each line controls whether it is a main vocal or an accompaniment, and which horizontal alignment it should use. `LyricifySyllableParser` is a Kotlin `object` (singleton) that decodes this format into strongly-typed `KaraokeLine` instances.
+
+## Format
+
+### Syllable notation
+
+Every syllable consists of its text immediately followed by `(startMs,durationMs)` in parentheses. The start time is absolute in milliseconds; the duration is also in milliseconds:
+
+```
+Hello(12340,200) World(12540,300)
+```
+
+Whitespace that belongs to the syllable is included in the text portion before the opening parenthesis:
+
+```
+I (0,214)promise (214,345)that (559,185)
+```
+
+### Attribute codes
+
+An optional `[n]` prefix controls line type and alignment. The attribute value is a single digit:
+
+| Code | Type | `KaraokeAlignment` |
+|---|---|---|
+| `[0]` | Main vocal | `KaraokeAlignment.Start` |
+| `[1]` | Main vocal | `KaraokeAlignment.Start` |
+| `[2]` | Main vocal | `KaraokeAlignment.End` |
+| `[3]` | Main vocal | `KaraokeAlignment.Start` |
+| `[4]` | Main vocal | `KaraokeAlignment.Start` |
+| `[5]` | Main vocal | `KaraokeAlignment.End` |
+| `[6]` | Accompaniment | `KaraokeAlignment.Start` |
+| `[7]` | Accompaniment | `KaraokeAlignment.Start` |
+| `[8]` | Accompaniment | `KaraokeAlignment.End` |
+
+Attributes `0`–`5` produce `KaraokeLine.MainKaraokeLine`. Attributes `6` and above produce `KaraokeLine.AccompanimentKaraokeLine`. Codes `2`, `5`, and `8` set `KaraokeAlignment.End`; all others default to `KaraokeAlignment.Start`. Lines without a `[n]` prefix are treated as main vocals with `KaraokeAlignment.Start`.
+
+### Full example
+
+```
+[4]I (0,214)promise (214,345)that (559,185)you'll (744,154)never (898,334)find (1232,202)another (1434,470)like (1904,363)me(2267,658)
+[2]我(0,214)保证(214,345)你(559,185)永远(744,154)找不到(898,334)另一个(1232,202)像我(1434,470)这样(1904,363)的(2267,658)
+[8]Background (800,200)vocals(1000,300)
+```
+
+The `[2]` line is a main vocal with `KaraokeAlignment.End`. The `[8]` line is an accompaniment. The parser attaches accompaniment lines to the immediately preceding `MainKaraokeLine.accompanimentLines`.
+
+## Detection
+
+`LyricifySyllableParser` recognises the format when the content contains at least one match for the pattern:
+
+```
+[a-zA-Z]+\s*\(\d+,\d+\)
+```
+
+This looks for a sequence of ASCII letters followed by an optional space and then `(number,number)` — a pattern specific enough to avoid false positives on LRC files.
+
+## Usage
+
+`LyricifySyllableParser` is a Kotlin `object`—no instantiation required:
+
+```kotlin
+val lyrics = LyricifySyllableParser.parse(content)
+
+// Or from a pre-split list of lines
+val lyrics = LyricifySyllableParser.parse(lines)
+```
+
+## Working with the result
+
+Every line in `SyncedLyrics.lines` is either a `KaraokeLine.MainKaraokeLine` or a `KaraokeLine.AccompanimentKaraokeLine`. Accompaniment lines are attached to the preceding main line rather than appearing as top-level entries when a main line exists:
+
+```kotlin
+val lyrics = LyricifySyllableParser.parse(content)
+
+for (line in lyrics.lines) {
+    when (line) {
+        is KaraokeLine.MainKaraokeLine -> {
+            println("Main [${line.alignment}] ${line.start}ms–${line.end}ms")
+
+            for (syllable in line.syllables) {
+                println("  ${syllable.start}ms–${syllable.end}ms '${syllable.content}'")
+            }
+
+            line.accompanimentLines?.forEach { bg ->
+                println("  [BG] ${bg.syllables.joinToString("") { it.content }}")
+            }
+        }
+
+        is KaraokeLine.AccompanimentKaraokeLine -> {
+            // Reached only when there was no preceding main line
+            println("Standalone BG: ${line.syllables.joinToString("") { it.content }}")
+        }
+    }
+}
+```
+
+## Full parse example
+
+```kotlin
+val content = """
+    [4]I (0,214)promise (214,345)that (559,185)you'll (744,154)never (898,334)find (1232,202)another (1434,470)like (1904,363)me(2267,658)
+    [2]我(0,214)保证(214,345)你(559,185)永远(744,154)找不到(898,334)另一个(1232,202)像我(1434,470)这样(1904,363)的(2267,658)
+""".trimIndent()
+
+val lyrics = LyricifySyllableParser.parse(content)
+
+println(lyrics.lines.size)  // 2
+
+val first = lyrics.lines[0] as KaraokeLine.MainKaraokeLine
+println(first.alignment)           // KaraokeAlignment.Start  (attribute [4])
+println(first.syllables[0].content)  // "I "
+println(first.syllables[0].start)    // 0
+println(first.syllables[0].end)      // 214
+
+val second = lyrics.lines[1] as KaraokeLine.MainKaraokeLine
+println(second.alignment)          // KaraokeAlignment.End  (attribute [2])
+```
+
+<Tip>
+  The official Lyricify Syllable format specification is published in the [Lyricify App documentation](https://github.com/WXRIW/Lyricify-App/blob/main/docs/Lyricify%204/Lyrics.md#lyricify-syllable-%E6%A0%BC%E5%BC%8F%E8%A7%84%E8%8C%83).
+</Tip>
+
+<Note>
+  `LyricifySyllableParser` does not currently populate `SyncedLyrics.title` or `SyncedLyrics.artists`. Metadata embedded in LRC-style header tags at the top of the file is stripped before syllable parsing but not surfaced on the result object.
+</Note>

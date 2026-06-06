@@ -1,0 +1,120 @@
+---
+title: "Install Accompanist Lyrics Core in your Kotlin project"
+sidebarTitle: "Installation"
+description: "Add Accompanist Lyrics Core to a Kotlin Multiplatform or JVM project via Gradle. Covers version catalogs, platform targets, and repository setup."
+---
+
+Accompanist Lyrics Core is published to Maven Central, so no additional repository configuration is needed for most projects. The steps below cover a standard JVM project, a Kotlin Multiplatform project, and the optional version-catalog approach.
+
+<Steps>
+  <Step title="Ensure Maven Central is in your repositories block">
+    Maven Central is included by default in projects created with recent versions of the Gradle wrapper or Android Studio. Verify your root `settings.gradle.kts` (or `build.gradle.kts` for single-module projects) includes the following:
+
+    ```kotlin
+    repositories {
+        mavenCentral()
+    }
+    ```
+
+    <Note>
+      If you are using a `dependencyResolutionManagement` block in `settings.gradle.kts`, add `mavenCentral()` inside the `repositories { }` block there instead.
+    </Note>
+  </Step>
+
+  <Step title="Add the dependency">
+    The dependency coordinates are the same regardless of platform. Add the artifact to the relevant `dependencies` block for your module type.
+
+    **JVM or Android project**
+
+    ```kotlin
+    // build.gradle.kts
+    dependencies {
+        implementation("com.mocharealm.accompanist:lyrics-core:0.4.5")
+    }
+    ```
+
+    **Kotlin Multiplatform project**
+
+    In a KMP project, place the dependency in `commonMain` so it is available on every configured target:
+
+    ```kotlin
+    // build.gradle.kts
+    kotlin {
+        sourceSets {
+            commonMain {
+                dependencies {
+                    implementation("com.mocharealm.accompanist:lyrics-core:0.4.5")
+                }
+            }
+        }
+    }
+    ```
+
+    <Tip>
+      Replace `0.4.5` with the latest version badge shown on [Maven Central](https://central.sonatype.com/artifact/com.mocharealm.accompanist/lyrics-core) if you want to stay current. The badge in the project README always reflects the newest published release.
+    </Tip>
+  </Step>
+
+  <Step title="Sync your project">
+    Run a Gradle sync (or `./gradlew build` from the command line) to download the artifact. The Kotlin stdlib is pulled in automatically as a transitive dependency — no extra declarations are needed.
+  </Step>
+</Steps>
+
+## Using Gradle version catalogs
+
+If your project uses a `libs.versions.toml` catalog (the default for new projects created in Android Studio Hedgehog and later), you can declare the dependency there to share it across modules.
+
+**`gradle/libs.versions.toml`**
+
+```toml
+[versions]
+accompanist-lyrics = "0.4.5"
+
+[libraries]
+accompanist-lyrics-core = { group = "com.mocharealm.accompanist", name = "lyrics-core", version.ref = "accompanist-lyrics" }
+```
+
+**`build.gradle.kts`**
+
+```kotlin
+dependencies {
+    implementation(libs.accompanist.lyrics.core)
+}
+```
+
+Or, inside a KMP `sourceSets` block:
+
+```kotlin
+kotlin {
+    sourceSets {
+        commonMain {
+            dependencies {
+                implementation(libs.accompanist.lyrics.core)
+            }
+        }
+    }
+}
+```
+
+## Supported targets
+
+The artifact ships compiled outputs for all of the following Kotlin Multiplatform targets. You do not need to change the dependency declaration when adding or changing targets in your own project — Gradle resolves the correct variant automatically.
+
+| Platform | Target |
+|---|---|
+| JVM (any — server, desktop, Android via JVM) | `jvm` |
+| JavaScript via IR compiler | `js(IR)` — browser and Node.js |
+| WebAssembly | `wasmJs` — browser and Node.js |
+| macOS (Intel) | `macosX64` |
+| macOS (Apple Silicon) | `macosArm64` |
+| iOS device (arm64) | `iosArm64` |
+| iOS simulator (x86-64) | `iosX64` |
+| iOS simulator (Apple Silicon) | `iosSimulatorArm64` |
+
+<Warning>
+  Accompanist Lyrics Core has no Android-specific dependencies and works on Android through the standard JVM target. However, it is not an Android library artifact (`.aar`). If you are using it in an Android-only Gradle module, declare it with the `implementation` configuration as shown above — no additional packaging steps are required.
+</Warning>
+
+## Transitive dependencies
+
+The library brings in `kotlinx-serialization-json` as a transitive dependency (used internally for TTML and structured format parsing). If your project already declares a different version of `kotlinx-serialization-json`, Gradle will resolve the conflict according to its standard version-selection rules. In most cases no manual alignment is required.

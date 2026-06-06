@@ -1,0 +1,129 @@
+---
+title: "Parse standard LRC lyrics files with EnhancedLrcParser"
+sidebarTitle: "LRC"
+description: "EnhancedLrcParser handles standard LRC files with line-level timestamps and ID3 metadata tags like [ti:], [ar:], and [al:] for title, artist, and album."
+---
+
+Standard LRC is the most widely supported lyrics format. Each line of lyrics is prefixed with a `[mm:ss.xx]` timestamp, and optional ID3-style header tags carry metadata such as the song title, artist, and album. `EnhancedLrcParser` handles both standard LRC and the Enhanced LRC extension from a single `object`—you do not need to choose between them.
+
+## Format
+
+A well-formed LRC file looks like this:
+
+```
+[ti:Song Title]
+[ar:Artist Name]
+[al:Album Name]
+[offset:500]
+[00:12.34]First line of lyrics
+[00:12.34]Translation of first line
+[00:23.45]Second line of lyrics
+[00:35.00]Third line
+```
+
+### Metadata tags
+
+The following header tags are recognised and surfaced on the returned `SyncedLyrics` object:
+
+| Tag | Field | Notes |
+|---|---|---|
+| `[ti:…]` | `SyncedLyrics.title` | Song title |
+| `[ar:…]` | `SyncedLyrics.artists` | Slash-separated artist names; colon separates role from name |
+| `[al:…]` | *(parsed but not stored on the model)* | Album name |
+| `[offset:…]` | Applied to all timestamps | Signed millisecond offset applied to every line |
+| `[length:…]` | *(parsed)* | Total track duration in `mm:ss.xx` format |
+
+### Multiple artists
+
+The `[ar:]` tag can hold several artists separated by `/`. An optional role prefix separated by `:` is also supported:
+
+```
+[ar:Lead Singer/Featuring Artist]
+[ar:Main:Lead Singer/Feature:Featuring Artist]
+```
+
+Each entry becomes an `Artist(role, name)` in `SyncedLyrics.artists`.
+
+### Translation lines
+
+A translation is encoded as a second line that shares the **same timestamp** as its primary line but carries different text content. The parser detects this automatically and stores it in `SyncedLine.translation`:
+
+```
+[00:12.34]Hello world
+[00:12.34]你好世界
+```
+
+Both lines parse to a single `SyncedLine` where `content = "Hello world"` and `translation = "你好世界"`.
+
+## Detection
+
+`EnhancedLrcParser` considers content parseable when it contains at least one `[dd:dd.dd]` (or `[dd:dd.ddd]`) timestamp pattern:
+
+```kotlin
+content.contains("""\[\d{2}:\d{2}\.\d{2,3}\]""".toRegex())
+```
+
+## Usage
+
+`EnhancedLrcParser` is a Kotlin `object` (singleton)—no instantiation required:
+
+```kotlin
+// Parse from a raw string
+val lyrics = EnhancedLrcParser.parse(lrcContent)
+
+// Parse from a pre-split list of lines
+val lyrics = EnhancedLrcParser.parse(lrcLines)
+```
+
+## Accessing the result
+
+```kotlin
+val lyrics = EnhancedLrcParser.parse(lrcContent)
+
+println(lyrics.title)                        // "Song Title"
+println(lyrics.artists.firstOrNull()?.name)  // "Artist Name"
+
+for (line in lyrics.lines) {
+    if (line is SyncedLine) {
+        println("${line.start}ms: ${line.content}")
+        line.translation?.let { println("  → $it") }
+    }
+}
+```
+
+`SyncedLine` carries the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `content` | `String` | The lyric text |
+| `translation` | `String?` | Translation if a same-timestamp line was found |
+| `start` | `Int` | Start time in milliseconds |
+| `end` | `Int` | End time in milliseconds (set to the next line's start) |
+
+<Note>
+  When the LRC content also contains syllable timing brackets (`<mm:ss.xx>` or `[mm:ss.xx]` inside a timestamped line), `EnhancedLrcParser` produces `KaraokeLine` instances instead of `SyncedLine`. See the [Enhanced LRC page](/parsers/enhanced-lrc) for details.
+</Note>
+
+## Example: full parse
+
+```kotlin
+val lrcContent = """
+    [ti:Starlight]
+    [ar:Example Artist]
+    [al:Demo Album]
+    [00:10.00]Under the open sky
+    [00:10.00]在开阔的天空下
+    [00:15.50]I see the stars align
+    [00:21.00]And fade into the night
+""".trimIndent()
+
+val lyrics = EnhancedLrcParser.parse(lrcContent)
+
+println(lyrics.title)   // Starlight
+println(lyrics.lines.size) // 3
+
+val first = lyrics.lines[0] as SyncedLine
+println(first.content)      // Under the open sky
+println(first.translation)  // 在开阔的天空下
+println(first.start)        // 10000
+```

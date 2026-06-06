@@ -1,0 +1,92 @@
+---
+title: "Lyrics format parsers in Accompanist Lyrics Core"
+sidebarTitle: "Overview"
+description: "Overview of all lyrics parsers in Accompanist Lyrics Core: AutoParser, EnhancedLrcParser, TTMLParser, LyricifySyllableParser, and KugouKrcParser."
+---
+
+Accompanist Lyrics Core ships with parsers for every major lyrics file format used by modern music streaming services and karaoke applications. Each parser implements a common interface so they are interchangeable, and an `AutoParser` ties them all together for effortless format detection.
+
+## The `ILyricsParser` interface
+
+Every parser in the library implements `ILyricsParser`, which defines three methods:
+
+```kotlin
+interface ILyricsParser {
+    fun canParse(content: String): Boolean
+    fun parse(lines: List<String>): SyncedLyrics
+    fun parse(content: String): SyncedLyrics
+}
+```
+
+<ParamField body="canParse" type="(content: String) → Boolean">
+  Returns `true` if this parser recognises the format of the given content string. Used by `AutoParser` to pick the right parser automatically.
+</ParamField>
+
+<ParamField body="parse(lines)" type="(lines: List<String>) → SyncedLyrics">
+  Parses a pre-split list of lines. The default implementation joins the list with `\n` and delegates to the `String` overload.
+</ParamField>
+
+<ParamField body="parse(content)" type="(content: String) → SyncedLyrics">
+  Parses a raw string of lyrics content. The default implementation splits on `\n` and delegates to the `List` overload.
+</ParamField>
+
+All parsers return a [`SyncedLyrics`](/api/synced-lyrics) object whose `lines` list contains a mix of [`SyncedLine`](/api/synced-line) and [`KaraokeLine`](/api/karaoke-line) instances depending on how much timing detail the format carries.
+
+## Available parsers
+
+| Format | Class | How it is detected |
+|---|---|---|
+| Standard LRC | `EnhancedLrcParser` | Presence of `[dd:dd.dd]` timestamp pattern |
+| Enhanced LRC (syllable) | `EnhancedLrcParser` | Same detection; syllable brackets activate karaoke output |
+| TTML (Apple Music) | `TTMLParser` | Presence of `http://www.w3.org/ns/ttml` in content |
+| Lyricify Syllable | `LyricifySyllableParser` | Pattern `[a-zA-Z]+\s*\(\d+,\d+\)` |
+| Kugou KRC | `KugouKrcParser` | Line time `[\d+,\d+]` combined with word time `<\d+,\d+,\d+>` |
+
+<Note>
+  `EnhancedLrcParser` handles **both** standard LRC (line-level timing only) and Enhanced LRC (syllable-level timing). The parser automatically produces `SyncedLine` or `KaraokeLine` output based on the content it finds.
+</Note>
+
+## Recommended usage
+
+For most applications you should reach for `AutoParser`. It tries each registered parser in order and delegates to the first one that claims it can handle the content:
+
+```kotlin
+val autoParser = AutoParser()
+val lyrics = autoParser.parse(content) // format detected automatically
+```
+
+See the [AutoParser page](/parsers/auto-parser) for details on configuring parser order, supplying a `PhoneticProvider`, and registering custom parsers.
+
+## Detection order in AutoParser
+
+`AutoParser` iterates its parser list and calls `canParse` on each entry. **The first match wins.** The default order is:
+
+1. `TTMLParser`
+2. `LyricifySyllableParser`
+3. `EnhancedLrcParser`
+4. `KugouKrcParser`
+
+TTML is checked first because its XML namespace string is highly specific and unambiguous. Lyricify Syllable is checked before Enhanced LRC because the Lyricify `word(start,duration)` notation would not be mistaken for standard LRC timestamps, but the reverse could theoretically overlap on edge-case files.
+
+## Individual parser pages
+
+<CardGroup cols={2}>
+  <Card title="AutoParser" icon="wand-magic-sparkles" href="/parsers/auto-parser">
+    Automatic format detection and delegation. The right starting point for all new integrations.
+  </Card>
+  <Card title="LRC" icon="align-left" href="/parsers/lrc">
+    Standard LRC with line-level timestamps and ID3-style metadata tags.
+  </Card>
+  <Card title="Enhanced LRC" icon="music" href="/parsers/enhanced-lrc">
+    Enhanced LRC with syllable timing, voice tags, and background vocal lines.
+  </Card>
+  <Card title="TTML" icon="apple" href="/parsers/ttml">
+    Apple Music TTML with syllable spans, transliterations, and multi-agent voices.
+  </Card>
+  <Card title="Lyricify Syllable" icon="layer-group" href="/parsers/lyricify-syllable">
+    Lyricify App format with `(startMs, durationMs)` syllable notation and alignment codes.
+  </Card>
+  <Card title="Kugou KRC" icon="headphones" href="/parsers/kugou-krc">
+    Kugou Music KRC with line/word timestamps, embedded phonetics, and colon role markers.
+  </Card>
+</CardGroup>

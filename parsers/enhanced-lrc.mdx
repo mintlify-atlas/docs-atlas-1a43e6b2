@@ -1,0 +1,138 @@
+---
+title: "Parse Enhanced LRC files with syllable-level timing"
+sidebarTitle: "Enhanced LRC"
+description: "EnhancedLrcParser handles Enhanced LRC with syllable timing using angle brackets, voice tags v1/v2, and background vocal lines for karaoke applications."
+---
+
+Enhanced LRC extends the standard LRC format by embedding per-syllable timestamps inside each lyric line. This enables word-by-word highlighting, multi-singer support, and background vocal tracks—all features required for karaoke display. `EnhancedLrcParser` handles standard and Enhanced LRC with the same `object`, automatically choosing between `SyncedLine` and `KaraokeLine` output based on what it finds in each line.
+
+## Format
+
+### Angle-bracket syllable timing (recommended)
+
+Syllable start times are expressed with `<mm:ss.xx>` angle brackets immediately before each syllable. The line-level timestamp `[mm:ss.xx]` still opens the line:
+
+```
+[00:12.34]<00:12.34>Hel<00:12.60>lo <00:12.90>World<00:13.20>
+```
+
+The trailing timestamp marks the end of the last syllable. Each `<time>text` pair becomes a `KaraokeSyllable`.
+
+### Square-bracket syllable timing (legacy)
+
+Some older tools write syllable timestamps inside square brackets. This is also supported:
+
+```
+[00:12.34][00:12.34]Hel[00:12.60]lo [00:12.90]World
+```
+
+The parser detects which bracket style is in use per line and handles them identically.
+
+### Background vocal lines
+
+Background or accompaniment lines are prefixed with `[bg:` instead of a timestamp. The background syllables are parsed just like main syllables and then attached to the immediately preceding `MainKaraokeLine.accompanimentLines`:
+
+```
+[00:12.34]<00:12.34>Main <00:12.90>Vocal<00:13.20>
+[bg:<00:12.50>Back<00:12.90>ground<00:13.10>]
+```
+
+### Voice and alignment tags
+
+A `v1:` or `v2:` prefix after the line timestamp assigns the line to a singer, which controls horizontal alignment in dual-singer UIs:
+
+```
+[00:12.34]v1: <00:12.34>Singer one sings this
+[00:15.00]v2: <00:15.00>Singer two responds here
+```
+
+| Prefix | `KaraokeAlignment` value |
+|---|---|
+| `v1:` | `KaraokeAlignment.Start` |
+| `v2:` | `KaraokeAlignment.End` |
+| *(none)* | `KaraokeAlignment.Unspecified` |
+
+### Translation lines
+
+Like standard LRC, a translation is encoded as a second line sharing the same timestamp. The parser matches any two lines whose start times are within 150 ms of each other and whose text content differs, merging the second into the `translation` field:
+
+```
+[00:12.34]<00:12.34>Hello <00:12.90>World<00:13.20>
+[00:12.34]你好世界
+```
+
+## Detection
+
+`EnhancedLrcParser` is detected—and therefore also handles standard LRC—by the presence of a `[dd:dd.dd]` pattern. There is no separate detection step for the syllable extensions; the parser always attempts syllable parsing and falls back to `SyncedLine` when no syllable brackets are found.
+
+## Usage
+
+`EnhancedLrcParser` is a Kotlin `object`—no instantiation is needed:
+
+```kotlin
+val lyrics = EnhancedLrcParser.parse(enhancedLrcContent)
+```
+
+## Working with the result
+
+Lines will be a mixture of `KaraokeLine.MainKaraokeLine` (when syllable timing is present) and `SyncedLine` (when only a line-level timestamp exists):
+
+```kotlin
+val lyrics = EnhancedLrcParser.parse(enhancedLrcContent)
+
+for (line in lyrics.lines) {
+    when (line) {
+        is KaraokeLine.MainKaraokeLine -> {
+            println("Karaoke [${line.alignment}] ${line.start}ms–${line.end}ms")
+
+            // Syllable-level access
+            for (syllable in line.syllables) {
+                println("  ${syllable.start}ms: '${syllable.content}'")
+            }
+
+            // Optional translation
+            line.translation?.let { println("  → $it") }
+
+            // Background / accompaniment vocals attached to this line
+            line.accompanimentLines?.forEach { bg ->
+                println("  [BG] ${bg.syllables.joinToString("") { it.content }}")
+                bg.translation?.let { println("    → $it") }
+            }
+        }
+
+        is SyncedLine -> {
+            println("${line.start}ms: ${line.content}")
+            line.translation?.let { println("  → $it") }
+        }
+    }
+}
+```
+
+## Full example with background vocals
+
+```kotlin
+val content = """
+    [00:01.00]<00:01.00>Hello <00:02.00>World<00:02.50>
+    [00:01.00]你好世界
+    [bg: <00:01.50>Chorus<00:02.00>]
+    [bg: <00:01.50>合唱<00:02.00>]
+""".trimIndent()
+
+val lyrics = EnhancedLrcParser.parse(content)
+
+val line = lyrics.lines[0] as KaraokeLine.MainKaraokeLine
+println(line.syllables[0].content)  // "Hello "
+println(line.translation)           // "你好世界"
+
+val bg = line.accompanimentLines!!.first()
+println(bg.syllables.joinToString("") { it.content }) // "Chorus"
+println(bg.translation)                                // "合唱"
+```
+
+<Note>
+  Background lines are **not** returned as top-level entries in `SyncedLyrics.lines`. They are attached to the `MainKaraokeLine` that immediately precedes them via `accompanimentLines`. If no preceding main line exists, the background line is added to the top-level list as a standalone `AccompanimentKaraokeLine`.
+</Note>
+
+## Metadata
+
+`EnhancedLrcParser` forwards the same LRC header tags as the standard parser. `SyncedLyrics.title` and `SyncedLyrics.artists` are populated from `[ti:]` and `[ar:]` tags respectively. See the [LRC page](/parsers/lrc) for full metadata tag details.

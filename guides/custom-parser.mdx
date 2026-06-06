@@ -1,0 +1,190 @@
+---
+title: "Add a custom lyrics format parser to AutoParser"
+sidebarTitle: "Custom Parser"
+description: "Implement ILyricsParser to add support for any custom lyrics format, then register it with AutoParser to enable automatic detection alongside built-in parsers."
+---
+
+Accompanist Lyrics Core ships with parsers for TTML, Lyricify Syllable, Enhanced LRC, and Kugou KRC. If you need to consume a proprietary or niche format that none of those cover, you can implement the `ILyricsParser` interface and plug it straight into `AutoParser` — no forking required.
+
+## When to write a custom parser
+
+<CardGroup cols={2}>
+  <Card title="Proprietary formats" icon="lock">
+    Your backend or content provider delivers lyrics in a format unique to your service that no built-in parser recognises.
+  </Card>
+  <Card title="Niche community formats" icon="puzzle-piece">
+    Lesser-known open formats (e.g. ASS subtitles repurposed for music, plain-text with custom delimiters) that are not part of the built-in set.
+  </Card>
+</CardGroup>
+
+## Implementing `ILyricsParser`
+
+The `ILyricsParser` interface has three methods, but you only need to implement two of them:
+
+```kotlin
+interface ILyricsParser {
+    fun canParse(content: String): Boolean
+
+    // Implement ONE of the two parse overloads.
+    // The other is provided as a default that delegates to whichever you implement.
+    fun parse(lines: List<String>): SyncedLyrics  // default: joins lines, calls parse(String)
+    fun parse(content: String): SyncedLyrics       // default: splits by \n, calls parse(List)
+}
+```
+
+<Note>
+  The two `parse` overloads have mutual default implementations — each delegates to the other. Implement whichever suits your parsing logic and the second will work automatically.
+</Note>
+
+<Steps>
+
+### Implement `canParse`
+
+`canParse` is called first, before any parsing work begins. It should return `true` only when the content is definitively your format. Keep it cheap — a header check or a regex on the first few lines is ideal.
+
+```kotlin
+override fun canParse(content: String): Boolean {
+    return content.startsWith("##MY_FORMAT##")
+}
+```
+
+<Tip>
+  Be as specific as possible. A loose check (e.g. "contains a pipe character") risks matching content intended for a different parser.
+</Tip>
+
+<Warning>
+  Avoid expensive operations here — `canParse` can be called multiple times in a row as `AutoParser` tries each registered parser in order.
+</Warning>
+
+### Implement `parse`
+
+Choose the overload that best fits how your format is structured. If your format is naturally line-oriented, implement `parse(lines: List<String>)`. If you need access to the raw string (e.g. for multi-line tokens or regex over the whole document), implement `parse(content: String)`.
+
+The return type is `SyncedLyrics`, which holds a list of `ISyncedLine` items. Use `SyncedLine` for simple timestamped text, or `KaraokeLine.MainKaraokeLine` for syllable-level karaoke data.
+
+```kotlin
+override fun parse(content: String): SyncedLyrics {
+    val lines = content.lines()
+        .filter { it.isNotBlank() && !it.startsWith("##") }
+        .mapIndexedNotNull { _, line ->
+            val parts = line.split("|")
+            if (parts.size < 2) return@mapIndexedNotNull null
+            val startMs = parts[0].toLongOrNull()?.toInt() ?: return@mapIndexedNotNull null
+            val text = parts[1]
+            SyncedLine(
+                content = text,
+                translation = null,
+                start = startMs,
+                end = startMs + 3000 // placeholder end time
+            )
+        }
+    return SyncedLyrics(lines = lines)
+}
+```
+
+<Info>
+  `SyncedLine` requires `end >= start`. If your format omits end times, derive them from the next line's start time, or use a fixed offset as a safe placeholder.
+</Info>
+
+### Register with `AutoParser`
+
+Pass a list of `ILyricsParser` instances to `AutoParser`. Parsers are tried in the order they appear in the list — the first one whose `canParse` returns `true` wins.
+
+**Put your parser first** if it should take priority over built-in parsers:
+
+```kotlin
+val autoParser = AutoParser(
+    parsers = listOf(
+        MyCustomParser(), // checked first
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser
+    )
+)
+```
+
+**Append it at the end** if it should only match when all built-in parsers have declined:
+
+```kotlin
+val autoParser = AutoParser(
+    parsers = listOf(
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser,
+        MyCustomParser() // checked last (fallback)
+    )
+)
+```
+
+</Steps>
+
+## Full working example
+
+The example below parses a hypothetical format where the first line is a header tag (`##MY_FORMAT##`) and each subsequent line is `<startMs>|<lyric text>`:
+
+```
+##MY_FORMAT##
+0|Welcome to the show
+3200|The lights go down
+6800|And the music starts
+```
+
+```kotlin
+class MyCustomParser : ILyricsParser {
+
+    override fun canParse(content: String): Boolean {
+        return content.startsWith("##MY_FORMAT##")
+    }
+
+    override fun parse(content: String): SyncedLyrics {
+        val lines = content.lines()
+            .filter { it.isNotBlank() && !it.startsWith("##") }
+            .mapIndexedNotNull { _, line ->
+                val parts = line.split("|")
+                if (parts.size < 2) return@mapIndexedNotNull null
+                val startMs = parts[0].toLongOrNull()?.toInt() ?: return@mapIndexedNotNull null
+                val text = parts[1]
+                SyncedLine(
+                    content = text,
+                    translation = null,
+                    start = startMs,
+                    end = startMs + 3000 // placeholder end time
+                )
+            }
+        return SyncedLyrics(lines = lines)
+    }
+}
+
+// Register with AutoParser — custom parser runs first
+val autoParser = AutoParser(
+    parsers = listOf(
+        MyCustomParser(),
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser
+    )
+)
+
+// Use exactly like the default AutoParser
+val lyrics = autoParser.parse(rawContent)
+```
+
+## Tips for robust parsers
+
+<CardGroup cols={2}>
+  <Card title="Fast canParse checks" icon="bolt">
+    Check only the minimum needed — a magic byte sequence, a header tag, or the first non-empty line. Avoid regex over the full document.
+  </Card>
+  <Card title="Graceful null handling" icon="shield-check">
+    Use `mapIndexedNotNull` or similar to skip malformed lines rather than throwing, so one bad line does not discard the entire file.
+  </Card>
+  <Card title="Derive missing end times" icon="clock">
+    If your format has no explicit end timestamps, compute each line's end from the next line's start, and give the last line a fixed offset (e.g. +3 000 ms).
+  </Card>
+  <Card title="Return empty SyncedLyrics on failure" icon="circle-xmark">
+    If parsing fails entirely, return `SyncedLyrics(emptyList())` rather than throwing — consistent with how `AutoParser` itself handles unrecognised content.
+  </Card>
+</CardGroup>

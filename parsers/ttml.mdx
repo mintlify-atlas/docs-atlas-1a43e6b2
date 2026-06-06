@@ -1,0 +1,182 @@
+---
+title: "Parse Apple Music TTML lyrics with TTMLParser"
+sidebarTitle: "TTML"
+description: "TTMLParser parses Apple Music TTML lyrics with syllable-level word timing, transliterations, translations, background vocals, and multi-agent voice alignment."
+---
+
+TTML (Timed Text Markup Language) is the lyrics format used by Apple Music. The Apple Syllable variant wraps each word in a `<span>` element with `begin` and `end` attributes, enabling precise word-by-word karaoke highlighting. `TTMLParser` also handles transliterations (phonetic romanization), translations, background vocal tracks, and multi-agent voice assignment—all features of the [Apple Music TTML specification](https://help.apple.com/itc/videoaudioassetguide/#/itc0f14fecdd).
+
+## Detection
+
+`TTMLParser` identifies TTML content by checking for the W3C TTML namespace string:
+
+```kotlin
+content.contains("http://www.w3.org/ns/ttml")
+```
+
+This check is highly specific and essentially never produces false positives.
+
+## Constructor
+
+Unlike the singleton parsers, `TTMLParser` is a **class** because it accepts a constructor parameter:
+
+```kotlin
+class TTMLParser(
+    private val fallbackPhoneticProvider: PhoneticProvider? = null,
+) : ILyricsParser
+```
+
+<ParamField body="fallbackPhoneticProvider" type="PhoneticProvider?" default="null">
+  An optional `PhoneticProvider` applied to lines that contain no existing phonetic annotation (neither a line-level `x-roman` span nor syllable-level transliterations from iTunes metadata). If a line already has phonetics embedded, the fallback provider is skipped for that line.
+</ParamField>
+
+## TTML format overview
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+    itunes:timing="Word">
+  <head>
+    <metadata>
+      <ttm:agent type="person" xml:id="v1"/>
+      <ttm:agent type="person" xml:id="v2"/>
+    </metadata>
+  </head>
+  <body dur="03:45.000">
+    <div begin="00:00.000" end="03:45.000">
+      <p begin="00:12.000" end="00:15.000" ttm:agent="v1" itunes:key="L1">
+        <span begin="00:12.000" end="00:12.400">Hel</span>
+        <span begin="00:12.400" end="00:12.800">lo </span>
+        <span begin="00:12.800" end="00:15.000">World</span>
+        <span ttm:role="x-translation" xml:lang="zh-CN">你好世界</span>
+      </p>
+    </div>
+  </body>
+</tt>
+```
+
+### Agents and alignment
+
+The `<metadata>` block declares named agents (`ttm:agent`). The parser maps the **first** declared agent to `KaraokeAlignment.Start` and every subsequent agent to `KaraokeAlignment.End`. Each `<p>` element references an agent via `ttm:agent`, and the corresponding alignment is applied to the resulting `KaraokeLine`:
+
+| Agent position | `KaraokeAlignment` |
+|---|---|
+| First agent (`v1`) | `KaraokeAlignment.Start` |
+| Second agent (`v2`) | `KaraokeAlignment.End` |
+
+### Special `<span>` roles
+
+| `ttm:role` value | Meaning |
+|---|---|
+| `x-translation` | Inline translation text for the parent `<p>` |
+| `x-bg` | Background or accompaniment vocal with its own syllable `<span>` children |
+| `x-roman` | Line-level phonetic / romanization string |
+
+### iTunes transliterations
+
+Apple Music TTML files may embed a `<transliterations>` block inside `<iTunesMetadata>`. Each `<text for="Lx">` element contains `<span>` children—one per syllable—holding phonetic readings. The parser aligns these phonetics to the matching syllables by `itunes:key`:
+
+```xml
+<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal">
+  <transliterations>
+    <transliteration>
+      <text for="L1">
+        <span>Hé</span>
+        <span>lō</span>
+      </text>
+    </transliteration>
+  </transliterations>
+</iTunesMetadata>
+```
+
+### iTunes translations
+
+A `<translation>` block inside `<head>` provides out-of-band translations keyed by `itunes:key`:
+
+```xml
+<translation>
+  <text for="L1">你好世界</text>
+</translation>
+```
+
+These are merged with any inline `x-translation` spans, with inline taking precedence.
+
+## Usage
+
+```kotlin
+// No phonetic provider
+val parser = TTMLParser()
+val lyrics = parser.parse(ttmlContent)
+
+// With a fallback phonetic provider
+val parserWithPhonetics = TTMLParser(fallbackPhoneticProvider = myProvider)
+val lyrics = parserWithPhonetics.parse(ttmlContent)
+```
+
+## Working with the result
+
+`TTMLParser` produces `KaraokeLine.MainKaraokeLine` for every `<p>` element that contains timed `<span>` children, and `SyncedLine` for `<p>` elements with no timed spans (plain line-level timing only):
+
+```kotlin
+val lyrics = TTMLParser().parse(ttmlContent)
+
+for (line in lyrics.lines) {
+    when (line) {
+        is KaraokeLine.MainKaraokeLine -> {
+            println("${line.alignment}: ${line.start}ms–${line.end}ms")
+
+            // Syllables
+            for (syllable in line.syllables) {
+                val phonetic = syllable.phonetic?.let { " ($it)" } ?: ""
+                println("  ${syllable.start}ms '${syllable.content}'$phonetic")
+            }
+
+            // Line-level phonetic (x-roman)
+            line.phonetic?.let { println("  phonetic: $it") }
+
+            // Translation
+            line.translation?.let { println("  → $it") }
+
+            // Background vocals
+            line.accompanimentLines?.forEach { bg ->
+                println("  [BG] ${bg.syllables.joinToString("") { it.content }}")
+            }
+        }
+
+        is SyncedLine -> {
+            println("${line.start}ms: ${line.content}")
+        }
+    }
+}
+```
+
+## Phonetic provider behaviour
+
+The `fallbackPhoneticProvider` is only invoked when a `KaraokeLine` has **no** existing phonetic data. The check considers both line-level phonetic (`x-roman` span) and syllable-level phonetics (iTunes transliterations):
+
+- If `line.phonetic` is non-null, the fallback is skipped for the whole line.
+- If any `syllable.phonetic` is non-null on that line, the fallback is also skipped.
+
+`PhoneticProvider.phoneticLevel` controls the granularity:
+
+| `PhoneticLevel` | Behaviour |
+|---|---|
+| `LINE` | `getPhonetic` is called once with the full line text; result stored on `KaraokeLine.phonetic` |
+| `SYLLABLE` | `getPhonetic` is called once per syllable; results stored on `KaraokeSyllable.phonetic` |
+
+## Lines without syllable spans
+
+If a `<p>` element contains no timed `<span>` children, `TTMLParser` extracts its raw text and returns a `SyncedLine`. An inline `x-translation` span is still parsed and stored in `SyncedLine.translation`:
+
+```xml
+<p begin="00:00.000" end="00:02.000">
+  This is a plain synced line
+  <span ttm:role="x-translation">这是一行歌词</span>
+</p>
+```
+
+<Note>
+  `TTMLParser` is a **class**, not an `object`. You must call `TTMLParser()` (or `TTMLParser(provider)`) to get an instance. This is in contrast to `EnhancedLrcParser`, `LyricifySyllableParser`, and `KugouKrcParser`, which are singletons.
+</Note>

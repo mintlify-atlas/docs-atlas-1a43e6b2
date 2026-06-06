@@ -1,0 +1,85 @@
+---
+title: "Export lyrics to LRC, Enhanced LRC, and TTML formats"
+sidebarTitle: "Overview"
+description: "Accompanist Lyrics Core includes three exporters for converting SyncedLyrics to standard LRC, Enhanced LRC with syllable timing, or Apple Music TTML XML."
+---
+
+Accompanist Lyrics Core ships three ready-to-use exporters that convert a `SyncedLyrics` object back into a serialized string. Whether you need the widest media-player compatibility, syllable-level karaoke data, or an Apple Music–compatible XML document, there is an exporter that fits the job — and all three share an identical one-line calling convention.
+
+## The `ILyricsExporter` interface
+
+Every exporter implements the same interface:
+
+```kotlin
+interface ILyricsExporter {
+    fun export(lyrics: SyncedLyrics): String
+}
+```
+
+Pass a `SyncedLyrics` object in, receive a formatted string out. There are no configuration objects, builder patterns, or checked exceptions to worry about.
+
+<Note>
+  All three exporters — `LrcExporter`, `EnhancedLrcExporter`, and `TTMLExporter` — are Kotlin `object` singletons. You never instantiate them; just call `export` directly on the object reference.
+</Note>
+
+## Available exporters
+
+| Exporter | Output format | Syllable timing | Background vocals | Multi-voice |
+|---|---|---|---|---|
+| `LrcExporter` | Standard LRC | ✗ | ✗ | ✗ |
+| `EnhancedLrcExporter` | Enhanced LRC | ✓ | ✓ | ✗ |
+| `TTMLExporter` | TTML XML | ✓ | ✓ | ✓ |
+
+## Basic usage
+
+Because every exporter is a singleton, calling any of them takes a single line:
+
+```kotlin
+val lrcString     = LrcExporter.export(lyrics)
+val enhancedLrc   = EnhancedLrcExporter.export(lyrics)
+val ttml          = TTMLExporter.export(lyrics)
+```
+
+If `lyrics.lines` is empty, all exporters return an empty string rather than a partially-formed document.
+
+## Choosing the right exporter
+
+**Use `LrcExporter`** when you need the broadest compatibility. Virtually every media player and lyrics app understands standard LRC. The trade-off is that syllable timing is lost: any `KaraokeLine` in the source is downsampled to a plain `SyncedLine` before serialization.
+
+**Use `EnhancedLrcExporter`** when syllable-level karaoke data and background vocal tracks must be preserved. The output is still a plain-text `.lrc` file, so it stays human-readable, but the `<mm:ss.xxx>` inline timestamps carry full word-level timing.
+
+**Use `TTMLExporter`** when targeting Apple Music or any pipeline that consumes TTML XML. It supports multi-voice songs (two agents, `v1` / `v2`), background-vocal spans, and translation metadata — all in a single structured document.
+
+## Format-conversion pipeline
+
+The exporters compose naturally with any of the library's parsers. The snippet below reads an Apple Music TTML file and writes it back out as a standard LRC file, dropping syllable detail in the process:
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.parser.TTMLParser
+import com.mocharealm.accompanist.lyrics.core.exporter.LrcExporter
+
+val ttmlContent = File("track.ttml").readText()
+val lyrics      = TTMLParser.parse(ttmlContent)   // SyncedLyrics
+val lrc         = LrcExporter.export(lyrics)       // standard LRC string
+File("track.lrc").writeText(lrc)
+```
+
+Swap `LrcExporter` for `EnhancedLrcExporter` or `TTMLExporter` to target a different output format without changing anything else.
+
+<Tip>
+  A round-trip through `EnhancedLrcExporter` preserves all syllable timing and background vocal data. If your source is already an Enhanced LRC file parsed by `EnhancedLrcParser`, exporting with `EnhancedLrcExporter` produces output that is functionally equivalent to the original.
+</Tip>
+
+## Exporter pages
+
+<CardGroup cols={3}>
+  <Card title="LRC Exporter" icon="file-lines" href="/exporters/lrc-exporter">
+    Standard LRC with ID3 tags and line-level timestamps — maximum compatibility
+  </Card>
+  <Card title="Enhanced LRC Exporter" icon="waveform" href="/exporters/enhanced-lrc-exporter">
+    Syllable timing, background vocal lines, and translation support
+  </Card>
+  <Card title="TTML Exporter" icon="code" href="/exporters/ttml-exporter">
+    Apple Music TTML XML with multi-voice agents and translation spans
+  </Card>
+</CardGroup>

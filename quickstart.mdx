@@ -1,47 +1,162 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get started with Accompanist Lyrics Core"
+sidebarTitle: "Quickstart"
+description: "Parse your first lyrics file with Accompanist Lyrics Core in three steps using AutoParser, then access line text and timing data."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+Accompanist Lyrics Core is designed so that the most common use case — reading a lyrics string from a file or network response and getting structured, timed lines back — requires almost no configuration. The following walkthrough takes you from zero to a fully navigable `SyncedLyrics` object, then shows how to look up the active line by playback time and export the result to LRC.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Add the dependency">
+    Add the artifact to your `build.gradle.kts`. If you are working in a Kotlin Multiplatform project, place it in `commonMain`.
 
-    ```bash
-    npm install your-package
+    ```kotlin
+    dependencies {
+        implementation("com.mocharealm.accompanist:lyrics-core:0.4.5")
+    }
+    ```
+
+    See the [Installation guide](/installation) for version catalogs, KMP target details, and repository setup.
+  </Step>
+
+  <Step title="Parse lyrics with AutoParser">
+    `AutoParser` accepts a raw lyrics string and automatically detects the format by running each registered parser's `canParse()` check in sequence. The first parser that claims the content handles the parse.
+
+    ```kotlin
+    import com.mocharealm.accompanist.lyrics.core.parser.AutoParser
+
+    // Obtain your lyrics string — from disk, a network call, or a content provider
+    val lyricsContent: String = fetchLyrics()
+
+    // Create a default AutoParser instance
+    val autoParser = AutoParser()
+
+    // Parse — returns a SyncedLyrics regardless of the source format
+    val lyrics = autoParser.parse(lyricsContent)
+
+    // Top-level metadata
+    println(lyrics.title)
+    println(lyrics.artists?.joinToString(", ") { it.name })
+    ```
+
+    <Note>
+      The default `AutoParser` checks parsers in this order: `TTMLParser` → `LyricifySyllableParser` → `EnhancedLrcParser` → `KugouKrcParser`. Standard LRC files are handled by `EnhancedLrcParser`, which also produces syllable-level output when Enhanced LRC word-timing tags are present. If no parser recognises the content, `AutoParser` returns an empty `SyncedLyrics`.
+    </Note>
+
+    <Tip>
+      If you already know the format of the file, use the specific parser directly to skip the detection loop and avoid any ambiguity:
+
+      ```kotlin
+      import com.mocharealm.accompanist.lyrics.core.parser.EnhancedLrcParser
+      import com.mocharealm.accompanist.lyrics.core.parser.TTMLParser
+      import com.mocharealm.accompanist.lyrics.core.parser.LyricifySyllableParser
+      import com.mocharealm.accompanist.lyrics.core.parser.KugouKrcParser
+
+      val lyrics = EnhancedLrcParser.parse(lrcContent)     // LRC or Enhanced LRC
+      val lyrics = TTMLParser().parse(ttmlContent)          // TTML / Apple Music
+      val lyrics = LyricifySyllableParser.parse(lsfContent) // Lyricify Syllable
+      val lyrics = KugouKrcParser.parse(krcContent)         // Kugou KRC
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Access lines and timing data">
+    Every entry in `lyrics.lines` implements `ISyncedLine`, which guarantees `start`, `end`, and `duration` in milliseconds. Use a `when` expression to branch on the concrete type and access format-specific data.
+
+    ```kotlin
+    import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
+    import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
+
+    for (line in lyrics.lines) {
+        when (line) {
+            is SyncedLine -> {
+                // Plain or translated line — no syllable data
+                println("${line.start}ms – ${line.end}ms: ${line.content}")
+                line.translation?.let { println("  ↳ Translation: $it") }
+            }
+            is KaraokeLine.MainKaraokeLine -> {
+                // Syllable-timed main vocal line
+                val fullText = line.syllables.joinToString("") { it.content }
+                println("${line.start}ms – ${line.end}ms: $fullText")
+
+                // Individual syllable timestamps
+                for (syllable in line.syllables) {
+                    print("${syllable.content}[${syllable.start}–${syllable.end}ms] ")
+                }
+                println()
+
+                // Optional translation and phonetic annotation
+                line.translation?.let { println("  ↳ Translation: $it") }
+                line.phonetic?.let { println("  ↳ Phonetic: $it") }
+
+                // Background / accompaniment vocals embedded in the same line
+                line.accompanimentLines?.forEach { accompaniment ->
+                    val bgText = accompaniment.syllables.joinToString("") { it.content }
+                    println("  ↳ Background: $bgText")
+                }
+            }
+        }
+    }
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
+  <Step title="Get the current line by playback time">
+    `SyncedLyrics` provides a binary-search helper that returns the index of the line that should be highlighted at a given playback position. Pass the current position in milliseconds and use the returned index to scroll or highlight your UI.
+
+    ```kotlin
+    // timeMs is your player's current position in milliseconds (e.g. from ExoPlayer or AVPlayer)
+    val timeMs: Int = player.currentPositionMs.toInt()
+
+    // Returns the index of the first line active at timeMs
+    val currentIndex: Int = lyrics.getCurrentFirstHighlightLineIndexByTime(timeMs)
+
+    if (currentIndex < lyrics.lines.size) {
+        println("Now playing line $currentIndex: ${lyrics.lines[currentIndex]}")
+    }
     ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
+    For duet or overlapping-vocal scenarios where multiple lines can be active simultaneously, use the companion function:
+
+    ```kotlin
+    val activeIndices: List<Int> = lyrics.getCurrentAllHighlightLineIndicesByTime(timeMs)
+    activeIndices.forEach { index ->
+        println("Active line $index: ${lyrics.lines[index]}")
+    }
+    ```
+
+    <Note>
+      Both timing functions perform a binary search on the `lines` list and are safe to call on every UI frame or playback tick — they do not iterate the full list.
+    </Note>
+  </Step>
+
+  <Step title="Export to LRC">
+    Use `LrcExporter` to serialise a `SyncedLyrics` object back into a standard LRC string. Karaoke lines are automatically flattened to plain text, and translation lines are written as duplicate timestamps. Title and artist metadata are written as `[ti:]` and `[ar:]` ID3 tags.
+
+    ```kotlin
+    import com.mocharealm.accompanist.lyrics.core.exporter.LrcExporter
+
+    val lrcString: String = LrcExporter.export(lyrics)
+
+    // Write to file, send over network, copy to clipboard, etc.
+    println(lrcString)
+    ```
+
+    Example output for a two-line parsed file:
+
+    ```
+    [ti:Song Title]
+    [ar:Artist Name]
+    [00:39.96]I lean in and you move away
+    [00:39.96]我靠在里面，你就离开
+    [00:44.12]Every time I reach out
     ```
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Next steps
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Now that you can parse, navigate, and export lyrics, explore the rest of the documentation:
+
+- **[Parsers Overview](/parsers/overview)** — learn about the individual parsers, their detection heuristics, and which features each format supports.
+- **[Exporters Overview](/exporters/overview)** — details on `LrcExporter` and the `ILyricsExporter` interface for building custom exporters.
+- **[Custom Parser Guide](/guides/custom-parser)** — implement `ILyricsParser` and register it with `AutoParser` to handle any proprietary format.

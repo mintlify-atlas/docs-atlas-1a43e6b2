@@ -1,0 +1,97 @@
+---
+title: "Accompanist Lyrics Core: Kotlin lyrics parsing library"
+sidebarTitle: "Introduction"
+description: "Accompanist Lyrics Core parses LRC, Enhanced LRC, TTML, Lyricify Syllable, and Kugou KRC lyrics into a unified Kotlin data model with syllable-level timing."
+---
+
+Accompanist Lyrics Core is a pure Kotlin Multiplatform library that reads virtually any lyrics file format and hands you back a single, consistent data model — no format-specific glue code required. Whether you are building a music player, a karaoke overlay, or a transcription tool, the library handles detection, parsing, and optional re-export, so you can focus entirely on presentation and playback logic.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Parse your first lyrics file in three steps using AutoParser.
+  </Card>
+  <Card title="Parsers Overview" icon="file-lines" href="/parsers/overview">
+    Explore the individual format parsers and their capabilities.
+  </Card>
+  <Card title="Exporters Overview" icon="file-export" href="/exporters/overview">
+    Convert a parsed SyncedLyrics object back into a text format.
+  </Card>
+  <Card title="Custom Parser Guide" icon="puzzle-piece" href="/guides/custom-parser">
+    Implement ILyricsParser to support any proprietary or niche format.
+  </Card>
+</CardGroup>
+
+## What the library does
+
+Accompanist Lyrics Core covers three responsibilities:
+
+1. **Parsing** — reads a raw lyrics string and produces a structured `SyncedLyrics` object, regardless of whether the source is a plain LRC file, an Apple Music TTML document, or a Kugou KRC archive.
+2. **Modelling** — stores every line as an `ISyncedLine` implementation that exposes millisecond-accurate `start` and `end` timestamps alongside optional metadata such as translations, phonetics, and syllable-level timing.
+3. **Exporting** — converts a `SyncedLyrics` object back into a text format (currently LRC) using a dedicated exporter, making round-trip workflows and format migration straightforward.
+
+## The unified data model
+
+All parsed lyrics are represented by a three-layer hierarchy.
+
+```
+SyncedLyrics
+ ├── title: String
+ ├── artists: List<Artist>?
+ └── lines: List<ISyncedLine>
+      ├── SyncedLine          (plain / translated line)
+      └── KaraokeLine         (syllable-timed line)
+           ├── MainKaraokeLine
+           └── AccompanimentKaraokeLine
+```
+
+**`SyncedLyrics`** is the top-level container. It holds the track title, optional artist list, and the ordered list of lines. It also exposes two helper functions — `getCurrentFirstHighlightLineIndexByTime(time)` and `getCurrentAllHighlightLineIndicesByTime(time)` — that perform a binary search over the lines and return the index or indices that should be highlighted at a given playback position.
+
+**`ISyncedLine`** is the common interface for every line type. It guarantees three properties: `start` (Int, ms), `end` (Int, ms), and `duration` (Int, ms). All higher-level types build on this interface.
+
+**`SyncedLine`** is the simplest concrete line type. It carries a `content` string and an optional `translation` string for dual-language lyrics.
+
+**`KaraokeLine`** is a sealed interface for lines that carry syllable-level timing. It has two implementations:
+
+- `MainKaraokeLine` — the primary singing voice. Optionally carries a list of `AccompanimentKaraokeLine` objects for background vocals or harmonies, plus an optional `phonetic` string for romanised or annotated text.
+- `AccompanimentKaraokeLine` — a background or harmony voice, with the same syllable and timing structure as the main line.
+
+Both karaoke line types expose a `syllables` list of `KaraokeSyllable` objects, where each syllable carries its own `start`, `end`, and `content`.
+
+## Key features
+
+- **Smart auto-detection** — `AutoParser` tries each registered parser in sequence and delegates to the first one whose `canParse()` check succeeds. No format string required.
+- **Karaoke and syllable timing** — Enhanced LRC, TTML, Lyricify Syllable, and Kugou KRC all surface syllable timestamps through the unified `KaraokeLine` model, ready for word-by-word highlighting.
+- **Translation support** — dual-language files (common in CJK markets) are parsed into the `translation` field of `SyncedLine` or `KaraokeLine`, so you can render both languages simultaneously.
+- **Background vocal tracks** — `MainKaraokeLine.accompanimentLines` carries any secondary or background singing parts parsed from the source file.
+- **Phonetics** — `KaraokeLine.phonetic` holds optional romanised or phonetic annotations extracted from formats that support them (e.g. TTML with Ruby annotations).
+- **Metadata extraction** — standard tags such as `[ti:]` and `[ar:]` are mapped to `SyncedLyrics.title` and `SyncedLyrics.artists`.
+- **LRC export** — `LrcExporter` serialises a `SyncedLyrics` object back into a standard LRC string, including ID3 tags and optional translation lines.
+- **Extensible** — implement `ILyricsParser` and pass it to `AutoParser` to support any custom format alongside the built-in parsers.
+
+## Supported formats
+
+| Format | Parser class | Syllable timing | Translations | Notes |
+|---|---|---|---|---|
+| Standard LRC | `EnhancedLrcParser` | No | Yes | Dual-language via repeated timestamps |
+| Enhanced LRC | `EnhancedLrcParser` | Yes | Yes | Word-level `<mm:ss.xx>` tags |
+| TTML (Apple Syllable) | `TTMLParser` | Yes | Yes | Format used by Apple Music |
+| Lyricify Syllable | `LyricifySyllableParser` | Yes | Yes | From the Lyricify App |
+| Kugou KRC | `KugouKrcParser` | Yes | No | Kugou Music proprietary format |
+
+<Info>
+  Both standard LRC and Enhanced LRC are handled by `EnhancedLrcParser`, which detects whether syllable tags are present and produces `SyncedLine` or `KaraokeLine` output accordingly.
+</Info>
+
+## Kotlin Multiplatform targets
+
+Accompanist Lyrics Core is a pure Kotlin library with no Android or platform-specific dependencies. It is published for the following targets:
+
+| Platform | Target identifier |
+|---|---|
+| JVM | `jvm` |
+| JavaScript (IR) | `js(IR)` — browser & Node.js |
+| WebAssembly | `wasmJs` — browser & Node.js |
+| macOS | `macosX64`, `macosArm64` |
+| iOS | `iosX64`, `iosArm64`, `iosSimulatorArm64` |
+
+The library is distributed via Maven Central under the Apache 2.0 license.

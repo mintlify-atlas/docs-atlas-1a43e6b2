@@ -1,0 +1,230 @@
+---
+title: "TTMLExporter: convert lyrics to Apple Music TTML XML"
+sidebarTitle: "TTML Exporter"
+description: "TTMLExporter converts a SyncedLyrics object to Apple Music TTML XML with syllable spans, multi-agent voice support, and translation metadata."
+---
+
+`TTMLExporter` serializes a `SyncedLyrics` object into a complete TTML XML document compatible with Apple Music's internal lyrics format. It supports syllable-level `<span>` elements, multi-voice agent declarations for duets, background vocal spans, translation metadata, and automatic HTML-entity escaping — all without any external XML library dependency.
+
+## Signature
+
+`TTMLExporter` is a Kotlin `object` (singleton) that implements `ILyricsExporter`:
+
+```kotlin
+object TTMLExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String
+}
+```
+
+Pass a `SyncedLyrics` instance; receive a fully-formed TTML XML string. If `lyrics.lines` is empty, the method returns an empty string immediately.
+
+## Usage
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.TTMLExporter
+
+val ttml = TTMLExporter.export(lyrics)
+
+// Write to a .ttml file
+File("track.ttml").writeText(ttml)
+```
+
+## Output structure
+
+The exported document always starts with an XML declaration and a `<tt>` root element carrying the required namespace declarations:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+    itunes:timing="Word">
+  <head>
+    <!-- agent metadata, only present for multi-voice songs -->
+  </head>
+  <body dur="03:45.000">
+    <div begin="00:00.000" end="03:45.000">
+      <!-- one <p> per line -->
+    </div>
+  </body>
+</tt>
+```
+
+All timestamps use `mm:ss.xxx` notation (minutes, seconds, milliseconds).
+
+The `<body dur>` value and `<div end>` value are both derived from the maximum `end` time across all lines. The `<div begin>` value is the `start` time of the first line.
+
+### KaraokeLine — syllable `<p>` elements
+
+Each `KaraokeLine.MainKaraokeLine` becomes a `<p>` element whose children are individual `<span>` elements, one per `KaraokeSyllable`:
+
+```xml
+<p begin="00:12.340" end="00:15.000">
+  <span begin="00:12.340" end="00:12.600">Hel</span>
+  <span begin="00:12.600" end="00:12.900">lo </span>
+  <span begin="00:12.900" end="00:13.200">World</span>
+</p>
+```
+
+Syllable content is trimmed before writing. If the original content ends with a space, a literal space character is appended after the closing `</span>` tag to preserve word spacing.
+
+### SyncedLine — plain `<p>` elements
+
+A `SyncedLine` (no syllable data) is written as a `<p>` element with its text content inlined — no child `<span>` elements are added:
+
+```xml
+<p begin="00:12.340" end="00:15.000">Plain line text</p>
+```
+
+### Translation spans
+
+When any line carries a `translation` string, a `<span>` with `ttm:role="x-translation"` and `xml:lang="zh-CN"` is appended at the end of the `<p>` element, after all syllable spans:
+
+```xml
+<p begin="00:12.340" end="00:15.000">
+  <span begin="00:12.340" end="00:12.600">Hel</span>
+  <span begin="00:12.600" end="00:12.900">lo </span>
+  <span begin="00:12.900" end="00:13.200">World</span>
+  <span ttm:role="x-translation" xml:lang="zh-CN">你好，世界</span>
+</p>
+```
+
+### Background vocal spans (`x-bg`)
+
+Background vocals stored as `AccompanimentKaraokeLine` entries are written as `<span ttm:role="x-bg">` elements inside the parent `<p>`. Each background span contains its own syllable `<span>` children and an optional translation span:
+
+```xml
+<p begin="00:12.340" end="00:15.000">
+  <span begin="00:12.340" end="00:12.600">Main</span>
+  <span begin="00:12.600" end="00:13.200">vocal</span>
+  <span ttm:role="x-bg" begin="00:14.000" end="00:14.600">
+    <span begin="00:14.000" end="00:14.300">Back</span>
+    <span begin="00:14.300" end="00:14.600">ground</span>
+  </span>
+</p>
+```
+
+## Multi-voice support
+
+`TTMLExporter` automatically detects whether the `SyncedLyrics` contains lines for two distinct voices. Detection scans all lines and checks whether both `KaraokeAlignment.Start` and `KaraokeAlignment.End` are present:
+
+- `KaraokeAlignment.Start` → voice **v1** (typically the leading/left vocal)
+- `KaraokeAlignment.End` → voice **v2** (typically the secondary/right vocal)
+
+When both alignments are found, two agent declarations are added to `<head><metadata>` and every `<p>` for a main-line with an alignment value receives a `ttm:agent` attribute:
+
+```xml
+<head>
+  <metadata>
+    <ttm:agent type="person" xml:id="v1"/>
+    <ttm:agent type="person" xml:id="v2"/>
+  </metadata>
+</head>
+```
+
+```xml
+<p begin="00:12.340" end="00:15.000" ttm:agent="v1">
+  <span begin="00:12.340" end="00:12.600">Lead</span>
+  <span begin="00:12.600" end="00:13.200">vocal</span>
+</p>
+<p begin="00:15.000" end="00:17.500" ttm:agent="v2">
+  <span begin="00:15.000" end="00:15.600">Response</span>
+</p>
+```
+
+<Note>
+  If only one alignment value is present in the file (e.g. all lines are `KaraokeAlignment.Start` with no `KaraokeAlignment.End`), multi-voice detection returns `false` and no agent metadata or `ttm:agent` attributes are written.
+</Note>
+
+## Special character escaping
+
+All text content — both line content and translations — is HTML-entity escaped before being written to the XML document:
+
+| Raw character | Escaped form |
+|---|---|
+| `&` | `&amp;` |
+| `<` | `&lt;` |
+| `>` | `&gt;` |
+
+For example, a `SyncedLine` with `content = "Hello <World>"` and `translation = "你好 & 世界"` produces:
+
+```xml
+<p begin="00:00.000" end="00:02.000">Hello &lt;World&gt;<span ttm:role="x-translation" xml:lang="zh-CN">你好 &amp; 世界</span></p>
+```
+
+## Full example
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.TTMLExporter
+import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
+
+val lyrics = SyncedLyrics(
+    lines = listOf(
+        KaraokeLine.MainKaraokeLine(
+            syllables = listOf(
+                KaraokeSyllable(content = "Lead ", start = 12_340, end = 12_600),
+                KaraokeSyllable(content = "vocal", start = 12_600, end = 13_200)
+            ),
+            translation = "主唱",
+            alignment = KaraokeAlignment.Start,
+            start = 12_340,
+            end = 13_200
+        ),
+        KaraokeLine.MainKaraokeLine(
+            syllables = listOf(
+                KaraokeSyllable(content = "Response", start = 15_000, end = 15_800)
+            ),
+            translation = null,
+            alignment = KaraokeAlignment.End,
+            start = 15_000,
+            end = 15_800
+        )
+    )
+)
+
+val ttml = TTMLExporter.export(lyrics)
+println(ttml)
+```
+
+Expected output (condensed):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+    itunes:timing="Word">
+  <head>
+    <metadata>
+      <ttm:agent type="person" xml:id="v1"/>
+      <ttm:agent type="person" xml:id="v2"/>
+    </metadata>
+  </head>
+  <body dur="00:15.800">
+    <div begin="00:12.340" end="00:15.800">
+      <p begin="00:12.340" end="00:13.200" ttm:agent="v1">
+        <span begin="00:12.340" end="00:12.600">Lead</span> <span begin="00:12.600" end="00:13.200">vocal</span><span ttm:role="x-translation" xml:lang="zh-CN">主唱</span></p>
+      <p begin="00:15.000" end="00:15.800" ttm:agent="v2">
+        <span begin="00:15.000" end="00:15.800">Response</span></p>
+    </div>
+  </body>
+</tt>
+```
+
+## Use cases
+
+<CardGroup cols={2}>
+  <Card title="Lyricify → Apple Music" icon="arrow-right-arrow-left">
+    Parse a Lyricify Syllable file with `LyricifySyllableParser` and export with `TTMLExporter` to produce an Apple Music–compatible TTML document.
+  </Card>
+  <Card title="KRC → TTML" icon="arrow-right-arrow-left">
+    Parse a Kugou KRC file with `KugouKrcParser` and export to TTML, converting Kugou karaoke timing to the Apple Music format in one step.
+  </Card>
+</CardGroup>
+
+<Info>
+  For plain-text output that also preserves syllable timing, use [`EnhancedLrcExporter`](/exporters/enhanced-lrc-exporter). For standard LRC without syllable data, use [`LrcExporter`](/exporters/lrc-exporter).
+</Info>

@@ -1,20 +1,74 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "Accompanist Lyrics Core"
+sidebarTitle: "Home"
+description: "A Kotlin Multiplatform library for parsing, converting, and exporting lyrics in LRC, Enhanced LRC, TTML (Apple Music), Lyricify Syllable, and Kugou KRC formats."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+Accompanist Lyrics Core is a pure Kotlin library that parses lyrics files into a rich, unified data model and exports them back to any supported format. It supports syllable-level timing for karaoke highlighting, dual-language translation lines, background vocal tracks, and phonetic annotations — all without any Android or platform-specific dependencies.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Installation" icon="box" href="/installation">
+    Add the library to your Gradle project and configure your build
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Parse your first lyrics file and access lines in minutes
+  </Card>
+  <Card title="Parsers" icon="code" href="/parsers/overview">
+    Explore all supported formats: LRC, TTML, Lyricify, Kugou, and more
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/synced-lyrics">
+    Full reference for every class, interface, and extension function
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## Why Accompanist Lyrics Core?
+
+Most lyrics libraries stop at line-level timestamps. Accompanist goes further — every parser produces a `SyncedLyrics` object that carries syllable-level timing (`KaraokeLine`), per-line translations, background vocal tracks, and phonetic (romanization) annotations. The same model works whether you parsed an Apple Music TTML file or a plain `.lrc` file.
+
+<CardGroup cols={3}>
+  <Card title="Auto-Detection" icon="wand-magic-sparkles">
+    `AutoParser` identifies the format automatically — no manual format sniffing required
+  </Card>
+  <Card title="Karaoke-Ready" icon="microphone">
+    Syllable-level timing with `progress()` helpers ready for real-time UI highlighting
+  </Card>
+  <Card title="Multiplatform" icon="globe">
+    Targets JVM, JS, Wasm/JS, iOS, and macOS — one library for every Kotlin platform
+  </Card>
+  <Card title="Extensible" icon="puzzle-piece">
+    Implement `ILyricsParser` to add any custom format and register it with `AutoParser`
+  </Card>
+  <Card title="Export Support" icon="file-export">
+    Convert between formats: parse TTML and export back to LRC or Enhanced LRC
+  </Card>
+  <Card title="Translation Lines" icon="language">
+    Native dual-language support pairs a translation line with its primary line automatically
+  </Card>
+</CardGroup>
+
+## Supported Formats
+
+| Format | Parser | Notes |
+|---|---|---|
+| Standard LRC | `EnhancedLrcParser` | Line-level timestamps, ID3 metadata |
+| Enhanced LRC | `EnhancedLrcParser` | Syllable timing, background vocals |
+| TTML (Apple Syllable) | `TTMLParser` | Apple Music format, phonetic transliterations |
+| Lyricify Syllable | `LyricifySyllableParser` | Lyricify App format |
+| Kugou KRC | `KugouKrcParser` | Kugou Music format with phonetics |
+
+## Get Started
+
+<Steps>
+  <Step title="Add the dependency">
+    Add `com.mocharealm.accompanist:lyrics-core` to your `build.gradle.kts` dependencies block.
+  </Step>
+  <Step title="Parse lyrics">
+    Create an `AutoParser` instance and call `.parse(content)` with your lyrics string.
+  </Step>
+  <Step title="Access the data">
+    Iterate over `SyncedLyrics.lines` to get `SyncedLine` or `KaraokeLine` objects with timing data.
+  </Step>
+  <Step title="Export if needed">
+    Use `LrcExporter`, `EnhancedLrcExporter`, or `TTMLExporter` to convert to another format.
+  </Step>
+</Steps>

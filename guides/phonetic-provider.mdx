@@ -1,0 +1,149 @@
+---
+title: "Add phonetic romanization to lyrics with PhoneticProvider"
+sidebarTitle: "Phonetic Provider"
+description: "Implement PhoneticProvider to supply romanization or pronunciation annotations for lyrics. Configure TTMLParser and AutoParser to apply phonetics when TTML lacks them."
+---
+
+Lyrics for CJK languages often include phonetic annotations — pinyin for Mandarin, romaji or furigana for Japanese, romanisation for Korean — to help listeners who cannot read the script. Accompanist Lyrics Core provides the `PhoneticProvider` interface so you can attach a romanisation library of your choice and have it populate phonetic fields automatically whenever the source TTML file does not already carry that data.
+
+## The `PhoneticProvider` interface
+
+```kotlin
+interface PhoneticProvider {
+    val phoneticLevel: PhoneticLevel
+    fun getPhonetic(string: String): String
+}
+```
+
+You declare the granularity at which phonetics are generated via `phoneticLevel`, then implement `getPhonetic` to delegate to whatever romanisation library your project uses.
+
+## Choosing a `PhoneticLevel`
+
+`PhoneticLevel` controls when `getPhonetic` is called and where the result is stored in the parsed model.
+
+| Level | Called | Stored on |
+|---|---|---|
+| `PhoneticLevel.LINE` | Once per lyrics line | `KaraokeLine.phonetic` |
+| `PhoneticLevel.SYLLABLE` | Once per syllable | `KaraokeSyllable.phonetic` |
+
+<CardGroup cols={2}>
+  <Card title="LINE granularity" icon="align-left">
+    Best when your romanisation library works on whole sentences and produces a single string for the entire line. Lower call overhead.
+  </Card>
+  <Card title="SYLLABLE granularity" icon="music">
+    Best for karaoke highlighting where each syllable needs its own phonetic label displayed as the syllable plays. Higher fidelity, more calls.
+  </Card>
+</CardGroup>
+
+<Note>
+  `PhoneticProvider` is a fallback mechanism — it is invoked only when the source TTML file does not already contain phonetic data for that line or syllable. Existing phonetics in the file are always preserved.
+</Note>
+
+## Implementing a provider
+
+The implementation is deliberately thin: declare the level, then forward `getPhonetic` to whatever library handles your target script.
+
+**Line-level example (Mandarin pinyin):**
+
+```kotlin
+class PinyinProvider : PhoneticProvider {
+    override val phoneticLevel: PhoneticLevel = PhoneticLevel.LINE
+
+    override fun getPhonetic(string: String): String {
+        // Delegate to your chosen romanisation library.
+        return convertToPinyin(string)
+    }
+}
+```
+
+**Syllable-level example (Japanese romaji):**
+
+```kotlin
+class RomajiProvider : PhoneticProvider {
+    override val phoneticLevel: PhoneticLevel = PhoneticLevel.SYLLABLE
+
+    override fun getPhonetic(string: String): String {
+        // Called once per KaraokeSyllable.content
+        return convertToRomaji(string)
+    }
+}
+```
+
+<Tip>
+  At `SYLLABLE` level, `string` will be the content of a single `KaraokeSyllable` — often just one or two characters. Make sure your library handles short strings gracefully.
+</Tip>
+
+## Configuring your provider
+
+<Steps>
+
+### Attach to `TTMLParser` directly
+
+If you are using `TTMLParser` on its own, pass your provider via the `fallbackPhoneticProvider` constructor parameter:
+
+```kotlin
+val parser = TTMLParser(fallbackPhoneticProvider = PinyinProvider())
+val lyrics = parser.parse(ttmlContent)
+```
+
+### Attach via `AutoParser`
+
+When using `AutoParser` for automatic format detection, the `fallbackPhoneticProvider` is forwarded automatically to the internal `TTMLParser` instance:
+
+```kotlin
+val autoParser = AutoParser(fallbackPhoneticProvider = PinyinProvider())
+val lyrics = autoParser.parse(rawContent)
+```
+
+<Info>
+  The `fallbackPhoneticProvider` passed to `AutoParser` is forwarded only to the internally created `TTMLParser`. If you supply a custom parser list, create your `TTMLParser` with the provider explicitly included.
+</Info>
+
+```kotlin
+// Custom parser list — create TTMLParser manually with the provider
+val autoParser = AutoParser(
+    parsers = listOf(
+        TTMLParser(fallbackPhoneticProvider = PinyinProvider()),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser
+    )
+)
+```
+
+</Steps>
+
+## Accessing phonetics from the parsed result
+
+After parsing, phonetic strings are available directly on the model objects:
+
+```kotlin
+for (line in lyrics.lines) {
+    if (line is KaraokeLine) {
+        // Line-level phonetic (populated when PhoneticLevel.LINE)
+        println(line.phonetic)
+
+        // Syllable-level phonetics (populated when PhoneticLevel.SYLLABLE)
+        for (syllable in line.syllables) {
+            println(syllable.phonetic)
+        }
+    }
+}
+```
+
+Both `KaraokeLine.phonetic` and `KaraokeSyllable.phonetic` are nullable `String?`. When the TTML contained phonetic data natively and no fallback was needed, both provider levels will still leave those pre-existing strings intact.
+
+## Scope and limitations
+
+<Warning>
+  `PhoneticProvider` is only used by `TTMLParser`. The Enhanced LRC, Lyricify Syllable, and Kugou KRC parsers do not call `getPhonetic` — those formats either carry no phonetic fields or embed them in the file itself.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Purely a fallback" icon="arrow-down-to-line">
+    The provider is skipped whenever the TTML source already has phonetic annotations, so importing pre-annotated TTML files will never accidentally overwrite existing data.
+  </Card>
+  <Card title="Any romanisation library" icon="language">
+    The interface makes no assumptions about which library you use — integrate any pinyin, romaji, hangul romanisation, or transliteration package that fits your build target.
+  </Card>
+</CardGroup>

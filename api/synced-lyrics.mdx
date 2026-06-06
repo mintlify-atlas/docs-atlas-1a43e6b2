@@ -1,0 +1,146 @@
+---
+title: "SyncedLyrics: the root lyrics data model"
+sidebarTitle: "SyncedLyrics"
+description: "SyncedLyrics is the root model returned by all parsers. It holds lyrics lines, song metadata, and binary-search helpers for current-line lookup."
+---
+
+`SyncedLyrics` is the top-level object you receive from any parser in Accompanist Lyrics Core. It carries the full list of lyrics lines (as `ISyncedLine` implementations), song-level metadata, and two time-query methods you can drive directly from a media player's position callback to determine which lines should be highlighted at any given moment.
+
+## Constructor
+
+```kotlin
+data class SyncedLyrics(
+    val lines: List<ISyncedLine>,
+    val title: String = "",
+    val id: String = "0",
+    val artists: List<Artist>? = emptyList(),
+)
+```
+
+<ParamField path="lines" type="List<ISyncedLine>" required>
+  The ordered list of all lyrics lines. Each element is an [`ISyncedLine`](/api/synced-line) — in practice either a [`SyncedLine`](/api/synced-line) or a [`KaraokeLine`](/api/karaoke-line).
+</ParamField>
+
+<ParamField path="title" type="String" default='""'>
+  The song title sourced from the `[ti:]` LRC tag, or an empty string when absent.
+</ParamField>
+
+<ParamField path="id" type="String" default='"0"'>
+  An opaque identifier for the lyrics object. Defaults to `"0"` when not explicitly set by the parser.
+</ParamField>
+
+<ParamField path="artists" type="List<Artist>?" default="emptyList()">
+  The list of credited artists parsed from the `[ar:]` tag. May be `null` if artist information is entirely unavailable, or an empty list when the tag is present but empty. See [`Artist`](/api/attributes#artist).
+</ParamField>
+
+## Methods
+
+### `getCurrentFirstHighlightLineIndexByTime`
+
+```kotlin
+fun getCurrentFirstHighlightLineIndexByTime(time: Int): Int
+```
+
+Returns the index of the **first** line whose time window `[start, end]` contains `time`. Uses a binary search over `lines`, so it runs in O(log n) and is safe to call on every frame.
+
+<ResponseField name="time" type="Int" required>
+  Current playback position in milliseconds.
+</ResponseField>
+
+**Return value** — an `Int` with the following semantics:
+
+| Condition | Returned value |
+|---|---|
+| `lines` is empty | `0` |
+| A line's `[start, end]` contains `time` | Index of that line |
+| `time` falls in a gap between lines | Index of the next upcoming line |
+| `time` is after all lines | `lines.size` |
+
+<Note>
+When multiple lines overlap at `time`, this method returns only the **first** (lowest-index) match. Use `getCurrentAllHighlightLineIndicesByTime` to collect all overlapping lines.
+</Note>
+
+---
+
+### `getCurrentAllHighlightLineIndicesByTime`
+
+```kotlin
+fun getCurrentAllHighlightLineIndicesByTime(time: Int): List<Int>
+```
+
+Returns a **sorted** list of indices for every line whose `[start, end]` window contains `time`. Designed for overlapping-lyric scenarios such as duets or background vocals.
+
+<ResponseField name="time" type="Int" required>
+  Current playback position in milliseconds.
+</ResponseField>
+
+**Return value** — a `List<Int>` of matching line indices in ascending order, or an empty list if no line is active at `time`.
+
+## Properties (data class)
+
+<ResponseField name="lines" type="List<ISyncedLine>">
+  Ordered list of lyrics lines implementing `ISyncedLine`.
+</ResponseField>
+
+<ResponseField name="title" type="String">
+  Song title from the `[ti:]` LRC tag. Empty string when absent.
+</ResponseField>
+
+<ResponseField name="id" type="String">
+  Opaque lyrics identifier. Defaults to `"0"`.
+</ResponseField>
+
+<ResponseField name="artists" type="List<Artist>?">
+  Credited artists from the `[ar:]` tag. `null` means no artist information; an empty list means the tag was present but blank.
+</ResponseField>
+
+## Usage examples
+
+### Driving line highlights from a media player
+
+```kotlin
+// Called on each player position update (e.g. from a ViewModel)
+val lyrics: SyncedLyrics = parsedLyrics
+
+fun onPositionChanged(positionMs: Int) {
+    val index = lyrics.getCurrentFirstHighlightLineIndexByTime(positionMs)
+    // index is safe to use directly as a list index when < lyrics.lines.size
+    if (index < lyrics.lines.size) {
+        highlightLine(lyrics.lines[index])
+    }
+}
+```
+
+### Handling duets and overlapping lines
+
+```kotlin
+fun onPositionChanged(positionMs: Int) {
+    val indices = lyrics.getCurrentAllHighlightLineIndicesByTime(positionMs)
+    indices.forEach { i ->
+        highlightLine(lyrics.lines[i])
+    }
+}
+```
+
+### Displaying song metadata
+
+```kotlin
+val lyrics: SyncedLyrics = parsedLyrics
+
+Text(text = lyrics.title)
+lyrics.artists?.forEach { artist ->
+    Text(text = "${artist.type}: ${artist.name}")
+}
+```
+
+### Iterating all lines
+
+```kotlin
+lyrics.lines.forEachIndexed { index, line ->
+    when (line) {
+        is SyncedLine -> println("[$index] ${line.content}")
+        is KaraokeLine -> println("[$index] ${line.syllables.contentToString()}")
+        else -> {}
+    }
+}
+```

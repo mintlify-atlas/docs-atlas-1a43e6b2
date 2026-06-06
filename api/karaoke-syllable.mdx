@@ -1,0 +1,185 @@
+---
+title: "KaraokeSyllable: word-level timing data"
+sidebarTitle: "KaraokeSyllable"
+description: "KaraokeSyllable holds the text content, start/end timestamps, and optional phonetic annotation for a single syllable within a KaraokeLine."
+---
+
+`KaraokeSyllable` is the atomic unit of karaoke-style lyrics. Each [`KaraokeLine`](/api/karaoke-line) holds an ordered list of syllables, and each syllable knows exactly when it starts and ends on the playback timeline. This makes it possible to animate word-by-word highlighting at millisecond granularity.
+
+Construction enforces `end >= start`; an `IllegalArgumentException` is thrown if that constraint is violated.
+
+---
+
+## Constructor
+
+```kotlin
+data class KaraokeSyllable(
+    val content: String,
+    val start: Int,
+    val end: Int,
+    val phonetic: String? = null,
+)
+```
+
+<ParamField path="content" type="String" required>
+  The display text of this syllable (e.g. `"hel"`, `"lo"`).
+</ParamField>
+
+<ParamField path="start" type="Int" required>
+  Start time in milliseconds. Must be less than or equal to `end`.
+</ParamField>
+
+<ParamField path="end" type="Int" required>
+  End time in milliseconds. Must be greater than or equal to `start`; otherwise construction throws `IllegalArgumentException`.
+</ParamField>
+
+<ParamField path="phonetic" type="String?" default="null">
+  Optional phonetic (romanized) annotation for this syllable. When present, it is used by [`phoneticToString()`](#phonetictostring) to build a full phonetic string for the line.
+</ParamField>
+
+---
+
+## Properties
+
+<ResponseField name="content" type="String">
+  The display text of the syllable.
+</ResponseField>
+
+<ResponseField name="start" type="Int">
+  Start time in milliseconds.
+</ResponseField>
+
+<ResponseField name="end" type="Int">
+  End time in milliseconds.
+</ResponseField>
+
+<ResponseField name="phonetic" type="String?">
+  Optional phonetic annotation; `null` when not provided.
+</ResponseField>
+
+<ResponseField name="duration" type="Int">
+  Computed as `end - start`. Always non-negative due to the `init` constraint.
+</ResponseField>
+
+---
+
+## Methods
+
+### `progress(current: Int): Float`
+
+```kotlin
+fun progress(current: Int): Float
+```
+
+Returns normalized playback progress for this syllable clamped to `[0.0, 1.0]`.
+
+| Condition | Return value |
+|---|---|
+| `current < start` | `0.0` |
+| `current in start..end` | `(current - start).toFloat() / duration` |
+| `current > end` | `1.0` |
+
+<ResponseField name="current" type="Int">
+  Current playback position in milliseconds.
+</ResponseField>
+
+Use this value directly to drive animation — for example, as the sweep fraction of a clip mask or the interpolation factor of a color transition.
+
+```kotlin
+val progress: Float = syllable.progress(player.currentPosition.toInt())
+// 0.0f = not yet reached, 1.0f = fully sung
+```
+
+---
+
+## Extension functions on `Collection<KaraokeSyllable>`
+
+These extension functions are defined in the `com.mocharealm.accompanist.lyrics.core.model.karaoke.mapper` package and operate on any `Collection<KaraokeSyllable>`.
+
+### `contentToString()`
+
+```kotlin
+fun Collection<KaraokeSyllable>.contentToString(): String
+```
+
+Joins the `content` of every syllable in the collection with an empty separator, reconstructing the full plain-text line.
+
+```kotlin
+val syllables = listOf(
+    KaraokeSyllable("Hel", 0, 300),
+    KaraokeSyllable("lo ", 300, 600),
+    KaraokeSyllable("world", 600, 1200),
+)
+println(syllables.contentToString()) // "Hello world"
+```
+
+---
+
+### `phoneticToString()`
+
+```kotlin
+fun Collection<KaraokeSyllable>.phoneticToString(): String
+```
+
+Joins the `phonetic` value of every syllable with a single space separator. Syllables that have `phonetic == null` contribute an empty string to the join, which may produce consecutive spaces if phonetic annotations are sparse.
+
+```kotlin
+val syllables = listOf(
+    KaraokeSyllable("你", 0, 400, phonetic = "nǐ"),
+    KaraokeSyllable("好", 400, 900, phonetic = "hǎo"),
+)
+println(syllables.phoneticToString()) // "nǐ hǎo"
+```
+
+---
+
+## Usage examples
+
+### Animating individual syllables
+
+```kotlin
+val positionMs = player.currentPosition.toInt()
+
+line.syllables.forEach { syllable ->
+    val progress = syllable.progress(positionMs)
+    // Drive a horizontal clip: reveal `progress * width` pixels of the highlighted layer
+    Canvas(modifier = Modifier.width(textWidth)) {
+        drawText(syllable.content, color = Color.Gray)
+        clipRect(right = size.width * progress) {
+            drawText(syllable.content, color = Color.White)
+        }
+    }
+}
+```
+
+### Rebuilding line text from syllables
+
+```kotlin
+val line: KaraokeLine = lyrics.lines.filterIsInstance<KaraokeLine>().first()
+val fullText: String = line.syllables.contentToString()
+val phonetics: String = line.syllables.phoneticToString()
+
+println(fullText)   // e.g. "Hello world"
+println(phonetics)  // e.g. "hēllō wörld"
+```
+
+### Iterating syllables with timing info
+
+```kotlin
+line.syllables.forEachIndexed { index, syllable ->
+    println(
+        "[$index] '${syllable.content}' " +
+        "${syllable.start}ms – ${syllable.end}ms " +
+        "(${syllable.duration}ms)" +
+        if (syllable.phonetic != null) " [${syllable.phonetic}]" else ""
+    )
+}
+```
+
+### Finding the active syllable
+
+```kotlin
+val positionMs = player.currentPosition.toInt()
+val activeSyllable: KaraokeSyllable? = line.syllables
+    .firstOrNull { positionMs in it.start..it.end }
+```

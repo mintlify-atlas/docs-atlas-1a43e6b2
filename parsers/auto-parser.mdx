@@ -1,0 +1,155 @@
+---
+title: "AutoParser: automatic lyrics format detection"
+sidebarTitle: "AutoParser"
+description: "AutoParser detects and delegates to the correct lyrics parser automatically. Configure parser order, add custom parsers, and integrate phonetic providers."
+---
+
+`AutoParser` is the recommended entry point for parsing lyrics files when the format is not known ahead of time. It holds an ordered list of `ILyricsParser` implementations, calls `canParse` on each in sequence, and delegates to the first parser that claims the content. You get a single, consistent API regardless of whether the file is TTML, KRC, LRC, or any custom format you register.
+
+## Constructor
+
+```kotlin
+class AutoParser(
+    private val fallbackPhoneticProvider: PhoneticProvider? = null,
+    private val parsers: List<ILyricsParser> = listOf(
+        TTMLParser(fallbackPhoneticProvider = fallbackPhoneticProvider),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser,
+    )
+) : ILyricsParser
+```
+
+<ParamField body="fallbackPhoneticProvider" type="PhoneticProvider?" default="null">
+  An optional `PhoneticProvider` forwarded to `TTMLParser` when using the default parser list. It is applied to TTML lines that carry no existing phonetic annotation. Has no effect on other parsers. Ignored when you supply a custom `parsers` list unless you wire it up yourself.
+</ParamField>
+
+<ParamField body="parsers" type="List<ILyricsParser>">
+  The ordered list of parsers to try. Defaults to `[TTMLParser, LyricifySyllableParser, EnhancedLrcParser, KugouKrcParser]`. The first parser whose `canParse` returns `true` is used. Provide a custom list to change priority, exclude formats, or add your own parsers.
+</ParamField>
+
+## Basic usage
+
+Instantiate with the defaults and call `parse`. The format is detected automatically:
+
+```kotlin
+val autoParser = AutoParser()
+val lyrics = autoParser.parse(content)
+```
+
+`parse` returns a `SyncedLyrics` object. If no registered parser recognises the content, an empty `SyncedLyrics(emptyList())` is returned rather than throwing an exception.
+
+## Checking before parsing
+
+Use `canParse` to verify that at least one registered parser can handle a piece of content before committing to a full parse:
+
+```kotlin
+if (autoParser.canParse(content)) {
+    val lyrics = autoParser.parse(content)
+}
+```
+
+`canParse` returns `true` when **any** parser in the list returns `true` for the same content.
+
+## Default detection order
+
+The default parser list is evaluated in this sequence:
+
+<Steps>
+  <Step title="TTMLParser">
+    Detects Apple Music TTML by checking for the `http://www.w3.org/ns/ttml` namespace string. The XML namespace is highly specific, so this check almost never produces false positives.
+  </Step>
+  <Step title="LyricifySyllableParser">
+    Detects the Lyricify Syllable format by looking for the `word(startMs,durationMs)` pattern. Checked before Enhanced LRC because its detection pattern is distinct from LRC timestamps.
+  </Step>
+  <Step title="EnhancedLrcParser">
+    Detects standard and Enhanced LRC by checking for a `[dd:dd.dd]` timestamp pattern. Produces `SyncedLine` for plain LRC and `KaraokeLine` when syllable timing brackets are present.
+  </Step>
+  <Step title="KugouKrcParser">
+    Detects Kugou KRC by requiring both a line-time tag `[\d+,\d+]` and a word-time tag `<\d+,\d+,\d+>` on the same line.
+  </Step>
+</Steps>
+
+<Note>
+  **First match wins.** If content somehow satisfies multiple `canParse` checks, only the first matching parser in the list is used. Keep this in mind when reordering or adding parsers.
+</Note>
+
+## With a PhoneticProvider
+
+Supply a `PhoneticProvider` to have `TTMLParser` annotate TTML lines with phonetic readings when none are embedded in the file:
+
+```kotlin
+val autoParser = AutoParser(fallbackPhoneticProvider = myPhoneticProvider)
+val lyrics = autoParser.parse(ttmlContent)
+```
+
+The provider is only forwarded to `TTMLParser` in the default `parsers` list. It is not applied to LRC, Lyricify Syllable, or KRC output.
+
+## Custom parser order
+
+Pass an explicit `parsers` list to control priority or exclude formats you don't need:
+
+```kotlin
+val autoParser = AutoParser(
+    parsers = listOf(
+        MyCustomParser(),
+        KugouKrcParser,
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser
+    )
+)
+```
+
+<Tip>
+  Place your most-specific or most-common format first to avoid unnecessary `canParse` calls on every file.
+</Tip>
+
+## Registering a custom parser
+
+Any class that implements `ILyricsParser` can be inserted into the list. Override `canParse` to return `true` only for your format, then implement `parse` to return a `SyncedLyrics`:
+
+```kotlin
+class MyCustomParser : ILyricsParser {
+    override fun canParse(content: String): Boolean =
+        content.startsWith("#CUSTOM_FORMAT")
+
+    override fun parse(content: String): SyncedLyrics {
+        // ... your parsing logic
+        return SyncedLyrics(lines = parsedLines)
+    }
+}
+
+val autoParser = AutoParser(
+    parsers = listOf(MyCustomParser()) + listOf(
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser
+    )
+)
+```
+
+## Result type
+
+`AutoParser.parse` always returns `SyncedLyrics`. Inspect `SyncedLyrics.lines` to find out which concrete types were produced:
+
+```kotlin
+val lyrics = AutoParser().parse(content)
+
+for (line in lyrics.lines) {
+    when (line) {
+        is KaraokeLine.MainKaraokeLine -> {
+            // Syllable-level timing available
+            println("Karaoke line starts at ${line.start}ms")
+        }
+        is KaraokeLine.AccompanimentKaraokeLine -> {
+            // Background / accompaniment vocal
+        }
+        is SyncedLine -> {
+            // Line-level timing only
+            println("${line.start}ms: ${line.content}")
+        }
+    }
+}
+```

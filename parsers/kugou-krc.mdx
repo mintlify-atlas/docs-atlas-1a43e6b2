@@ -1,0 +1,132 @@
+---
+title: "Parse Kugou KRC lyrics with KugouKrcParser"
+sidebarTitle: "Kugou KRC"
+description: "KugouKrcParser handles Kugou Music KRC format with line and word-level timestamps, embedded phonetics, translations, and colon-delimited role markers."
+---
+
+KRC is the lyrics format used by Kugou Music. It extends the familiar LRC line-timestamp syntax with per-word timing encoded in angle brackets, a base64-encoded `[language:…]` metadata block for embedded translations and phonetics, background vocal lines, and colon-role markers for dual-singer alignment. `KugouKrcParser` is a Kotlin `object` (singleton) that decodes all of these features into `KaraokeLine` instances.
+
+## Format
+
+### Line and word timing
+
+Every lyric line opens with `[lineStartMs,lineDurationMs]`. Each word inside the line is preceded by `<wordOffsetMs,wordDurationMs,0>` where the offset is relative to the line start:
+
+```
+[lineStartMs,lineDurationMs]<offset,duration,0>word<offset,duration,0>text
+```
+
+For example:
+
+```
+[3463,720]<0,352,0>How <352,368,0>long
+[4527,1352]<0,207,0>Can <207,225,0>we <432,328,0>stay <760,592,0>awake
+```
+
+The absolute start time of each word is calculated as `lineStartMs + offset`.
+
+### Background vocal lines
+
+A background line uses the `[bg:…]` prefix instead of a timestamp. The syllable timing format inside is identical to a main line. Background lines are parsed and attached to the `accompanimentLines` list of the immediately preceding `MainKaraokeLine`:
+
+```
+[12000,2000]<0,300,0>Main<300,400,0> vocal
+[bg:<0,300,0>Back<300,400,0>ground]
+```
+
+### Colon role markers
+
+A line whose text starts or ends with `:` (full-width `：` is also supported) acts as an alignment toggle. The parser tracks the current alignment state and flips it each time it encounters a colon marker:
+
+- The first colon marker switches from `KaraokeAlignment.Start` → `KaraokeAlignment.End`.
+- The next colon marker switches back to `KaraokeAlignment.Start`.
+
+This convention is how Kugou KRC files encode dual-singer lines without a separate agent-metadata block. The colon character is kept in the syllable text rather than being removed.
+
+### Embedded phonetics and translations
+
+The `[language:…]` tag holds a base64-encoded JSON structure decoded by `KugouKrcMetadataDecoder`. After decoding it yields:
+
+- **`phonetics`**: A `List<List<String>>` where each inner list holds per-syllable phonetic readings for one lyric line.
+- **`translations`**: A `List<String>` where each entry is the translation for the corresponding lyric line.
+
+Phonetics are injected into `KaraokeSyllable.phonetic` only when the number of decoded phonetic tokens exactly matches the number of syllables on that line. Translations are stored in `KaraokeLine.MainKaraokeLine.translation`.
+
+## Detection
+
+`KugouKrcParser` identifies KRC content by requiring **both** patterns on the same line:
+
+```
+^\[\d+,\d+\]          // Line-level time tag
+<\d+,\d+,\d+>.{1}    // Word-level time tag with at least one character of text
+```
+
+This two-part check avoids false positives from plain LRC files, which have line timestamps but no angle-bracket word timing.
+
+## Usage
+
+`KugouKrcParser` is a Kotlin `object`—no instantiation required:
+
+```kotlin
+val lyrics = KugouKrcParser.parse(krcContent)
+
+// Or from a pre-split list of lines
+val lyrics = KugouKrcParser.parse(krcLines)
+```
+
+## Working with the result
+
+`SyncedLyrics.lines` contains `KaraokeLine.MainKaraokeLine` entries. Background lines are nested inside `accompanimentLines` on the main line they follow. There are no `SyncedLine` entries—KRC always produces syllable-level output:
+
+```kotlin
+val lyrics = KugouKrcParser.parse(krcContent)
+
+for (line in lyrics.lines) {
+    val main = line as KaraokeLine.MainKaraokeLine
+
+    println("[${main.alignment}] ${main.start}ms–${main.end}ms")
+
+    for (syllable in main.syllables) {
+        val phonetic = syllable.phonetic?.let { " ($it)" } ?: ""
+        println("  ${syllable.start}ms '${syllable.content}'$phonetic")
+    }
+
+    main.translation?.let { println("  → $it") }
+
+    main.accompanimentLines?.forEach { bg ->
+        println("  [BG] ${bg.syllables.joinToString("") { it.content }}")
+    }
+}
+```
+
+## Minimal example
+
+```kotlin
+val krc = """
+    [offset:0]
+    [3463,720]<0,352,0>How <352,368,0>long
+    [4527,1352]<0,207,0>Can <207,225,0>we <432,328,0>stay <760,592,0>awake
+""".trimIndent()
+
+val lyrics = KugouKrcParser.parse(krc)
+
+println(lyrics.lines.size)          // 2
+
+val first = lyrics.lines[0] as KaraokeLine.MainKaraokeLine
+println(first.syllables[0].content) // "How "
+println(first.syllables[0].start)   // 3463  (3463 + 0)
+println(first.syllables[1].content) // "long"
+println(first.syllables[1].start)   // 3815  (3463 + 352)
+```
+
+## Timing deduplication
+
+The parser tracks `lastLineStartTime` and advances any line whose declared start time is less than or equal to the previous line's start time by at least 3 ms. This guards against malformed KRC files where duplicate or out-of-order timestamps would otherwise confuse binary-search playback helpers.
+
+<Warning>
+  KRC files distributed by Kugou Music are typically compressed and encrypted. `KugouKrcParser` operates on the **decoded plaintext** form of the file. Decryption and decompression are outside the scope of this library and must be handled by the application before calling `parse`.
+</Warning>
+
+<Note>
+  `KugouKrcParser` is a Kotlin `object` (singleton). Call it directly as `KugouKrcParser.parse(content)` without instantiation, just like `EnhancedLrcParser` and `LyricifySyllableParser`.
+</Note>

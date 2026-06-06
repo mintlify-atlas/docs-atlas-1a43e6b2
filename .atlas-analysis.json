@@ -1,0 +1,125 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Accompanist Lyrics Core",
+  "projectDescription": "A Kotlin Multiplatform library for parsing, converting, and exporting lyrics in formats like LRC, Enhanced LRC, TTML (Apple Music), Lyricify Syllable, and Kugou KRC.",
+  "theme": "luma",
+  "primaryColor": "#1d89fc",
+  "lightColor": "#73b6fc",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Parsers",
+            "pages": [
+              "parsers/overview",
+              "parsers/auto-parser",
+              "parsers/lrc",
+              "parsers/enhanced-lrc",
+              "parsers/ttml",
+              "parsers/lyricify-syllable",
+              "parsers/kugou-krc"
+            ]
+          },
+          {
+            "group": "Exporters",
+            "pages": [
+              "exporters/overview",
+              "exporters/lrc-exporter",
+              "exporters/enhanced-lrc-exporter",
+              "exporters/ttml-exporter"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/custom-parser",
+              "guides/phonetic-provider",
+              "guides/playback-integration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Data Model",
+            "pages": [
+              "api/synced-lyrics",
+              "api/synced-line",
+              "api/karaoke-line",
+              "api/karaoke-syllable",
+              "api/attributes"
+            ]
+          },
+          {
+            "group": "Interfaces",
+            "pages": [
+              "api/ilyrics-parser",
+              "api/ilyrics-exporter",
+              "api/phonetic-provider"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Smart auto-detection of lyrics format via AutoParser",
+    "Syllable-level timing for karaoke-style highlighting",
+    "Support for LRC, Enhanced LRC, TTML (Apple Music), Lyricify Syllable, and Kugou KRC formats",
+    "Dual-language / translation line support",
+    "Export parsed lyrics back to LRC, Enhanced LRC, or TTML",
+    "Extensible via ILyricsParser interface for custom formats",
+    "PhoneticProvider interface for romanization/phonetic annotations",
+    "Kotlin Multiplatform: JVM, JS, Wasm, iOS, macOS",
+    "LRC metadata extraction (title, artist, album, offset)",
+    "Background vocal / accompaniment line support"
+  ],
+  "publicApiSurface": [
+    "AutoParser",
+    "LrcParser (via EnhancedLrcParser)",
+    "EnhancedLrcParser",
+    "TTMLParser",
+    "LyricifySyllableParser",
+    "KugouKrcParser",
+    "ILyricsParser",
+    "LrcExporter",
+    "EnhancedLrcExporter",
+    "TTMLExporter",
+    "ILyricsExporter",
+    "SyncedLyrics",
+    "ISyncedLine",
+    "SyncedLine",
+    "UncheckedSyncedLine",
+    "KaraokeLine",
+    "KaraokeLine.MainKaraokeLine",
+    "KaraokeLine.AccompanimentKaraokeLine",
+    "KaraokeSyllable",
+    "KaraokeAlignment",
+    "PhoneticLevel",
+    "PhoneticProvider",
+    "Attributes",
+    "Artist",
+    "SyncedLyrics.getCurrentFirstHighlightLineIndexByTime(time: Int)",
+    "SyncedLyrics.getCurrentAllHighlightLineIndicesByTime(time: Int)",
+    "KaraokeLine.progress(current: Int)",
+    "KaraokeLine.isFocused(current: Int)",
+    "KaraokeSyllable.progress(current: Int)",
+    "KaraokeLine.toSyncedLine()",
+    "SyncedLine.toKaraokeLine()",
+    "Collection<KaraokeSyllable>.contentToString()",
+    "Collection<KaraokeSyllable>.phoneticToString()"
+  ]
+}

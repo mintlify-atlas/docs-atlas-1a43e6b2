@@ -1,0 +1,129 @@
+---
+title: "PhoneticProvider: supply romanization for lyrics"
+sidebarTitle: "PhoneticProvider"
+description: "PhoneticProvider is an interface for supplying phonetic romanization at line or syllable level. Used by TTMLParser as a fallback when TTML contains no phonetic data."
+---
+
+`PhoneticProvider` is an interface for injecting phonetic romanization — such as Pinyin, Romaji, or any other transliteration scheme — into the lyrics parsing pipeline. It is used exclusively as a **fallback** by `TTMLParser`: when a TTML file contains no existing phonetic data (no `x-roman` spans, no embedded transliterations), the parser calls `getPhonetic()` to populate the phonetic fields on each line or syllable.
+
+## Interface definition
+
+```kotlin
+interface PhoneticProvider {
+    val phoneticLevel: PhoneticLevel
+    fun getPhonetic(string: String): String
+}
+
+enum class PhoneticLevel {
+    LINE,
+    SYLLABLE
+}
+```
+
+## Members
+
+### `phoneticLevel`
+
+```kotlin
+val phoneticLevel: PhoneticLevel
+```
+
+Declares the granularity at which this provider operates. The value controls which model fields are populated and how many times `getPhonetic()` is called per lyric line.
+
+<ResponseField name="phoneticLevel" type="PhoneticLevel" required>
+  The level of phonetic granularity this provider supports. Must be one of the `PhoneticLevel` enum values.
+
+  <Expandable title="PhoneticLevel values">
+    <ResponseField name="LINE" type="PhoneticLevel">
+      `getPhonetic()` is called **once per `KaraokeLine`**. The returned string is stored on `KaraokeLine.phonetic`. Use this level when your romanization library works best on full sentences or when per-syllable accuracy is not required.
+    </ResponseField>
+    <ResponseField name="SYLLABLE" type="PhoneticLevel">
+      `getPhonetic()` is called **once per `KaraokeSyllable`**. The returned string is stored on `KaraokeSyllable.phonetic`. Use this level when your library can produce accurate per-character or per-syllable romanization (e.g. Pinyin with tone marks per character).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### `getPhonetic`
+
+```kotlin
+fun getPhonetic(string: String): String
+```
+
+Converts an input string to its phonetic romanization. Called by `TTMLParser` for each line or syllable depending on `phoneticLevel`.
+
+<ParamField path="string" type="String" required>
+  The source text to romanize. When `phoneticLevel` is `LINE`, this is the full text content of a `KaraokeLine`. When `phoneticLevel` is `SYLLABLE`, this is the content of a single `KaraokeSyllable`.
+</ParamField>
+
+**Returns** the phonetic string for the given input (e.g. `"nǐ hǎo"` for `"你好"`). Return an empty string if no romanization is available for the input.
+
+## `PhoneticLevel` enum
+
+| Value | Granularity | Stored on |
+|---|---|---|
+| `LINE` | One call per `KaraokeLine` | `KaraokeLine.phonetic` |
+| `SYLLABLE` | One call per `KaraokeSyllable` | `KaraokeSyllable.phonetic` |
+
+<Info>
+  Only `KaraokeLine` and `KaraokeSyllable` carry phonetic fields. Plain `SyncedLine` entries (non-karaoke lines) are not passed to `getPhonetic()`.
+</Info>
+
+## Connection to TTMLParser and AutoParser
+
+`PhoneticProvider` is wired into the parsing pipeline via the `fallbackPhoneticProvider` parameter on `TTMLParser` and `AutoParser`.
+
+```kotlin
+// Pass directly to TTMLParser
+val parser = TTMLParser(fallbackPhoneticProvider = PinyinProvider())
+
+// Or pass to AutoParser, which forwards it to TTMLParser internally
+val autoParser = AutoParser(fallbackPhoneticProvider = PinyinProvider())
+```
+
+The provider is applied **only as a fallback**: if the TTML file already contains phonetic data — such as `<span ttm:role="x-roman">` spans or embedded transliteration runs — `getPhonetic()` is never called for those entries and the existing data is preserved.
+
+<Warning>
+  `PhoneticProvider` is currently only supported by `TTMLParser`. LRC-based parsers (`EnhancedLrcParser`, `KugouKrcParser`, `LyricifySyllableParser`) do not use it, because those formats do not carry phonetic metadata fields.
+</Warning>
+
+## Example implementation
+
+```kotlin
+class PinyinProvider : PhoneticProvider {
+    override val phoneticLevel: PhoneticLevel = PhoneticLevel.SYLLABLE
+
+    override fun getPhonetic(string: String): String {
+        // Convert to pinyin using your preferred library
+        return yourPinyinLibrary.toPinyin(string)
+    }
+}
+
+// Usage
+val parser = TTMLParser(fallbackPhoneticProvider = PinyinProvider())
+```
+
+For a line-level provider, switch `phoneticLevel` to `PhoneticLevel.LINE`:
+
+```kotlin
+class RomajiProvider : PhoneticProvider {
+    override val phoneticLevel: PhoneticLevel = PhoneticLevel.LINE
+
+    override fun getPhonetic(string: String): String {
+        return yourRomajiLibrary.toRomaji(string)
+    }
+}
+
+val parser = AutoParser(fallbackPhoneticProvider = RomajiProvider())
+```
+
+<Tip>
+  If your romanization library is slow or makes network calls, consider caching results inside `getPhonetic()`. The parser calls it once per line or syllable during the parse pass, so expensive calls can affect startup time.
+</Tip>
+
+## See also
+
+- [PhoneticProvider guide](/guides/phonetic-provider) — full walkthrough with library integration examples
+- [TTMLParser](/parsers/ttml) — the parser that consumes `PhoneticProvider`
+- [AutoParser](/parsers/auto-parser) — forwards `fallbackPhoneticProvider` to `TTMLParser`

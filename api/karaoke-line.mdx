@@ -1,0 +1,315 @@
+---
+title: "KaraokeLine: syllable-level lyrics line types"
+sidebarTitle: "KaraokeLine"
+description: "KaraokeLine is a sealed interface for syllable-level lyrics. Its two subtypes are MainKaraokeLine for lead vocals and AccompanimentKaraokeLine for backing."
+---
+
+`KaraokeLine` is the sealed interface for lyrics lines that carry syllable-level timing — the building block for animated, word-by-word highlighting. It extends [`ISyncedLine`](/api/synced-line#isyncedline) and adds a list of [`KaraokeSyllable`](/api/karaoke-syllable) objects, alignment information for multi-singer layouts, and optional phonetic annotations.
+
+There are two concrete subtypes: `MainKaraokeLine` for the primary vocalist (which may embed `AccompanimentKaraokeLine` tracks), and `AccompanimentKaraokeLine` for background or harmony vocals. Both enforce `end >= start` in their `init` blocks.
+
+---
+
+## Sealed interface: `KaraokeLine`
+
+```kotlin
+sealed interface KaraokeLine : ISyncedLine {
+    val syllables: List<KaraokeSyllable>
+    val translation: String?
+    val alignment: KaraokeAlignment
+    override val start: Int
+    override val end: Int
+    val phonetic: String?
+
+    fun progress(current: Int): Float
+    fun isFocused(current: Int): Boolean
+}
+```
+
+### Interface properties
+
+<ResponseField name="syllables" type="List<KaraokeSyllable>">
+  Ordered list of syllables that make up this line. See [`KaraokeSyllable`](/api/karaoke-syllable).
+</ResponseField>
+
+<ResponseField name="translation" type="String?">
+  Optional translation of the full line; `null` when not provided.
+</ResponseField>
+
+<ResponseField name="alignment" type="KaraokeAlignment">
+  Visual alignment hint for multi-singer layouts. See [`KaraokeAlignment`](#karaokealignment) below.
+</ResponseField>
+
+<ResponseField name="start" type="Int">
+  Start time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="end" type="Int">
+  End time of the line in milliseconds.
+</ResponseField>
+
+<ResponseField name="phonetic" type="String?">
+  Optional phonetic (romanized) representation of the full line; `null` when absent.
+</ResponseField>
+
+<ResponseField name="duration" type="Int">
+  Computed as `end - start` in each concrete subtype. Inherited from `ISyncedLine`.
+</ResponseField>
+
+### Interface methods
+
+#### `progress(current: Int): Float`
+
+```kotlin
+fun progress(current: Int): Float
+```
+
+Returns a normalized playback progress for this line in the range `[0.0, 1.0]`.
+
+| Condition | Return value |
+|---|---|
+| `current < start` | `0.0` |
+| `current in start..end` | `(current - start) / duration` |
+| `current > end` | `1.0` |
+
+<ResponseField name="current" type="Int">
+  Current playback position in milliseconds.
+</ResponseField>
+
+---
+
+#### `isFocused(current: Int): Boolean`
+
+```kotlin
+fun isFocused(current: Int): Boolean
+```
+
+Returns `true` when `current` falls within `[start, end]`. Use this to decide whether to render the line as active (e.g. apply a highlight color or scale animation).
+
+<ResponseField name="current" type="Int">
+  Current playback position in milliseconds.
+</ResponseField>
+
+---
+
+## MainKaraokeLine
+
+The primary lyrics line. May embed a list of `AccompanimentKaraokeLine` objects for background vocals that sing simultaneously.
+
+```kotlin
+data class MainKaraokeLine(
+    override val syllables: List<KaraokeSyllable>,
+    override val translation: String?,
+    override val alignment: KaraokeAlignment,
+    override val start: Int,
+    override val end: Int,
+    override val phonetic: String? = null,
+    val accompanimentLines: List<AccompanimentKaraokeLine>? = null
+) : KaraokeLine
+```
+
+<ParamField path="syllables" type="List<KaraokeSyllable>" required>
+  Syllables for the main vocal line.
+</ParamField>
+
+<ParamField path="translation" type="String?">
+  Optional translation of the line.
+</ParamField>
+
+<ParamField path="alignment" type="KaraokeAlignment" required>
+  Alignment hint for display — `Start`, `End`, or `Unspecified`.
+</ParamField>
+
+<ParamField path="start" type="Int" required>
+  Start time in milliseconds. Must be ≤ `end`.
+</ParamField>
+
+<ParamField path="end" type="Int" required>
+  End time in milliseconds. Must be ≥ `start`; otherwise construction throws `IllegalArgumentException`.
+</ParamField>
+
+<ParamField path="phonetic" type="String?" default="null">
+  Optional phonetic annotation for the full line.
+</ParamField>
+
+<ParamField path="accompanimentLines" type="List<AccompanimentKaraokeLine>?" default="null">
+  Zero or more accompaniment (background/harmony) vocal lines that overlap with this main line. `null` when the format carries no accompaniment data.
+</ParamField>
+
+### Additional property
+
+<ResponseField name="accompanimentLines" type="List<AccompanimentKaraokeLine>?">
+  Embedded accompaniment lines. `null` indicates no accompaniment; an empty list means the field was explicitly set to none.
+</ResponseField>
+
+---
+
+## AccompanimentKaraokeLine
+
+A background or harmony vocal line. Structurally identical to `MainKaraokeLine` but without the `accompanimentLines` field. Instances of this type are typically found nested inside `MainKaraokeLine.accompanimentLines`.
+
+```kotlin
+data class AccompanimentKaraokeLine(
+    override val syllables: List<KaraokeSyllable>,
+    override val translation: String?,
+    override val alignment: KaraokeAlignment,
+    override val start: Int,
+    override val end: Int,
+    override val phonetic: String? = null
+) : KaraokeLine
+```
+
+<ParamField path="syllables" type="List<KaraokeSyllable>" required>
+  Syllables for the accompaniment vocal.
+</ParamField>
+
+<ParamField path="translation" type="String?">
+  Optional translation of the accompaniment line.
+</ParamField>
+
+<ParamField path="alignment" type="KaraokeAlignment" required>
+  Alignment hint; typically `KaraokeAlignment.End` to visually separate it from the main line.
+</ParamField>
+
+<ParamField path="start" type="Int" required>
+  Start time in milliseconds. Must be ≤ `end`.
+</ParamField>
+
+<ParamField path="end" type="Int" required>
+  End time in milliseconds. Must be ≥ `start`.
+</ParamField>
+
+<ParamField path="phonetic" type="String?" default="null">
+  Optional phonetic annotation.
+</ParamField>
+
+---
+
+## KaraokeAlignment
+
+An enum that communicates the intended visual alignment of a line within a multi-singer UI layout.
+
+```kotlin
+enum class KaraokeAlignment {
+    Start, End, Unspecified
+}
+```
+
+<ResponseField name="Start" type="KaraokeAlignment">
+  The line should be aligned to the leading edge (typically the primary vocalist, left in LTR layouts).
+</ResponseField>
+
+<ResponseField name="End" type="KaraokeAlignment">
+  The line should be aligned to the trailing edge (typically a second vocalist or background harmony, right in LTR layouts).
+</ResponseField>
+
+<ResponseField name="Unspecified" type="KaraokeAlignment">
+  No alignment preference. The UI can apply its own default, or center the line.
+</ResponseField>
+
+---
+
+## Extension functions
+
+### `KaraokeLine.copy()`
+
+```kotlin
+fun KaraokeLine.copy(
+    syllables: List<KaraokeSyllable> = this.syllables,
+    translation: String? = this.translation,
+    alignment: KaraokeAlignment = this.alignment,
+    start: Int = this.start,
+    end: Int = this.end,
+    phonetic: String? = this.phonetic
+): KaraokeLine
+```
+
+A unified copy helper that works across both `KaraokeLine` subtypes without requiring a `when` expression. Delegates to the data class `copy()` of the underlying concrete type, preserving the runtime type.
+
+<Note>
+This extension does **not** expose `accompanimentLines`. To change `accompanimentLines` on a `MainKaraokeLine`, cast to `MainKaraokeLine` and call its data class `copy()` directly.
+</Note>
+
+```kotlin
+val updated = line.copy(
+    phonetic = "hēllō wörld",
+    alignment = KaraokeAlignment.Start
+)
+```
+
+---
+
+### `KaraokeLine.toSyncedLine()`
+
+```kotlin
+fun KaraokeLine.toSyncedLine(): SyncedLine
+```
+
+Collapses this line's syllable list into a single `SyncedLine` by joining all syllable content strings (trimmed). Useful when you need to fall back to line-level display or serialize to a simpler format.
+
+```kotlin
+val syncedLine: SyncedLine = karaokeLine.toSyncedLine()
+// syncedLine.content == karaokeLine.syllables.contentToString().trim()
+```
+
+---
+
+## Usage examples
+
+### Dispatching on subtype with `when`
+
+```kotlin
+when (val line = lyrics.lines[index]) {
+    is KaraokeLine.MainKaraokeLine -> {
+        renderMain(line)
+        line.accompanimentLines?.forEach { renderAccompaniment(it) }
+    }
+    is KaraokeLine.AccompanimentKaraokeLine -> renderAccompaniment(line)
+    else -> {}
+}
+```
+
+### Animating syllable progress
+
+```kotlin
+val positionMs: Int = player.currentPosition.toInt()
+
+line.syllables.forEach { syllable ->
+    val progress = syllable.progress(positionMs)
+    drawHighlight(syllable.content, progress)
+}
+```
+
+### Checking line focus and progress
+
+```kotlin
+if (line.isFocused(positionMs)) {
+    val lineProgress = line.progress(positionMs)
+    applyLineAnimation(lineProgress)
+}
+```
+
+### Multi-singer layout using alignment
+
+```kotlin
+val mainLines = lyrics.lines
+    .filterIsInstance<KaraokeLine.MainKaraokeLine>()
+
+mainLines.forEach { main ->
+    val mainAlign = when (main.alignment) {
+        KaraokeAlignment.Start -> Alignment.Start
+        KaraokeAlignment.End -> Alignment.End
+        KaraokeAlignment.Unspecified -> Alignment.CenterHorizontally
+    }
+    renderLine(main, mainAlign)
+
+    main.accompanimentLines?.forEach { acc ->
+        val accAlign = when (acc.alignment) {
+            KaraokeAlignment.Start -> Alignment.Start
+            KaraokeAlignment.End -> Alignment.End
+            KaraokeAlignment.Unspecified -> Alignment.CenterHorizontally
+        }
+        renderLine(acc, accAlign)
+    }
+}
+```

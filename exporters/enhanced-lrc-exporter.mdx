@@ -1,0 +1,162 @@
+---
+title: "EnhancedLrcExporter: syllable-level LRC export"
+sidebarTitle: "Enhanced LRC Exporter"
+description: "EnhancedLrcExporter converts SyncedLyrics to Enhanced LRC format, preserving syllable timing, background vocal lines, and translation lines."
+---
+
+`EnhancedLrcExporter` serializes a `SyncedLyrics` object into the Enhanced LRC format — a plain-text `.lrc` extension that embeds per-syllable `<mm:ss.xxx>` timestamps alongside the traditional `[mm:ss.xxx]` line timestamps. It preserves background vocal tracks, translation lines, and full word-level timing, making it the right choice whenever the richness of `KaraokeLine` data must survive the round-trip.
+
+## Signature
+
+`EnhancedLrcExporter` is a Kotlin `object` (singleton) that implements `ILyricsExporter`:
+
+```kotlin
+object EnhancedLrcExporter : ILyricsExporter {
+    override fun export(lyrics: SyncedLyrics): String
+}
+```
+
+Pass a `SyncedLyrics` instance; receive a fully-formed Enhanced LRC string. If `lyrics.lines` is empty, the method returns an empty string immediately.
+
+## Usage
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.EnhancedLrcExporter
+
+val enhancedLrc = EnhancedLrcExporter.export(lyrics)
+
+// Save or transmit as needed
+File("track.lrc").writeText(enhancedLrc)
+```
+
+## Output structure
+
+The exported string follows this layout:
+
+1. **ID3 tags** — emitted first when metadata is present.
+2. **Lyric lines** — one entry per line in `SyncedLyrics.lines`, formatted according to the line type.
+3. **Translation lines** — immediately after their primary line, sharing the same line-level timestamp.
+4. **Background vocal lines** — `[bg:...]` entries written after their parent main line.
+
+### ID3 tags
+
+| Tag | Source field | Condition |
+|---|---|---|
+| `[ti:...]` | `SyncedLyrics.title` | Emitted when `title` is not blank |
+| `[ar:...]` | `SyncedLyrics.artists` | Emitted when the list is non-null, non-empty, and every artist name is non-blank; multiple artists joined with `/` |
+
+### KaraokeLine — syllable output
+
+Each `KaraokeLine` is serialized with inline syllable timestamps:
+
+```
+[mm:ss.xxx]<mm:ss.xxx>syl<mm:ss.xxx>la<mm:ss.xxx>ble<mm:ss.xxx>
+```
+
+The **line-level** `[mm:ss.xxx]` tag comes from `KaraokeLine.start`. The syllable chain begins at the first syllable's `start` time and closes with a trailing `<mm:ss.xxx>` tag equal to `KaraokeLine.end`. For example:
+
+```
+[00:12.340]<00:12.340>Hel<00:12.600>lo <00:12.900>World<00:13.200>
+```
+
+### SyncedLine — plain output
+
+A `SyncedLine` (no syllable data) is written in standard LRC style with no inline timestamps:
+
+```
+[00:12.340]Plain line text
+```
+
+### Translation lines
+
+When a line's `translation` is non-null, a second line is appended with the **same line-level timestamp** as the primary line:
+
+```
+[00:12.340]<00:12.340>Hel<00:12.600>lo <00:12.900>World<00:13.200>
+[00:12.340]Translation text
+```
+
+### Background vocal lines (`[bg:...]`)
+
+Background vocals stored as `AccompanimentKaraokeLine` entries on a `KaraokeLine.MainKaraokeLine` are written immediately after the main line using the `[bg:...]` wrapper:
+
+```
+[bg:<00:14.000>Back<00:14.300>ground<00:14.600>]
+```
+
+If a background line also carries a translation, a separate `[bg:...]` translation entry follows:
+
+```
+[bg:<00:14.000>Background vocals<00:14.600>]
+[bg:<00:14.000>Translation of background<00:14.600>]
+```
+
+## Full example
+
+```kotlin
+import com.mocharealm.accompanist.lyrics.core.exporter.EnhancedLrcExporter
+import com.mocharealm.accompanist.lyrics.core.model.Artist
+import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
+
+val lyrics = SyncedLyrics(
+    title = "Song Title",
+    artists = listOf(Artist(name = "Artist Name")),
+    lines = listOf(
+        KaraokeLine.MainKaraokeLine(
+            syllables = listOf(
+                KaraokeSyllable(content = "Hel", start = 12_340, end = 12_600),
+                KaraokeSyllable(content = "lo ", start = 12_600, end = 12_900),
+                KaraokeSyllable(content = "World", start = 12_900, end = 13_200)
+            ),
+            translation = "你好，世界",
+            alignment = KaraokeAlignment.None,
+            start = 12_340,
+            end = 13_200,
+            accompanimentLines = listOf(
+                KaraokeLine.AccompanimentKaraokeLine(
+                    syllables = listOf(
+                        KaraokeSyllable(content = "Back", start = 14_000, end = 14_300),
+                        KaraokeSyllable(content = "ground", start = 14_300, end = 14_600)
+                    ),
+                    translation = null,
+                    alignment = KaraokeAlignment.None,
+                    start = 14_000,
+                    end = 14_600
+                )
+            )
+        )
+    )
+)
+
+val enhancedLrc = EnhancedLrcExporter.export(lyrics)
+println(enhancedLrc)
+```
+
+Expected output:
+
+```
+[ti:Song Title]
+[ar:Artist Name]
+[00:12.340]<00:12.340>Hel<00:12.600>lo <00:12.900>World<00:13.200>
+[00:12.340]你好，世界
+[bg:<00:14.000>Back<00:14.300>ground<00:14.600>]
+```
+
+## Round-trip fidelity
+
+<Tip>
+  Enhanced LRC is the only plain-text format in this library that supports a lossless round-trip. Parsing an Enhanced LRC file with `EnhancedLrcParser` and immediately exporting with `EnhancedLrcExporter` produces output that is functionally equivalent to the original source — all syllable timing, background vocal entries, and translations are preserved.
+</Tip>
+
+## When to use `EnhancedLrcExporter`
+
+- You need word-level karaoke highlighting in a downstream player that supports Enhanced LRC.
+- You want to preserve background vocal tracks in a portable plain-text format.
+- You are converting from TTML or KRC and need to retain syllable timing without moving to XML.
+
+<Info>
+  For the widest media-player compatibility at the cost of syllable detail, use [`LrcExporter`](/exporters/lrc-exporter). For an Apple Music–compatible XML document with multi-voice support, use [`TTMLExporter`](/exporters/ttml-exporter).
+</Info>

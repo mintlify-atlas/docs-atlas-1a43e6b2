@@ -1,0 +1,152 @@
+---
+title: "ILyricsParser: implement a custom lyrics parser"
+sidebarTitle: "ILyricsParser"
+description: "ILyricsParser is the interface all lyrics parsers implement. Override canParse() and one parse() overload to add support for any custom or built-in lyrics format."
+---
+
+`ILyricsParser` is the core interface every lyrics parser in Accompanist Lyrics Core implements. It defines a format-detection method and two mutually-delegating `parse` overloads, so you only need to provide one parsing implementation — the other is wired up automatically via the default method bodies.
+
+## Interface definition
+
+```kotlin
+interface ILyricsParser {
+    fun canParse(content: String): Boolean
+
+    fun parse(lines: List<String>): SyncedLyrics {
+        return parse(lines.joinToString("\n"))
+    }
+
+    fun parse(content: String): SyncedLyrics {
+        return parse(content.split('\n'))
+    }
+}
+```
+
+## Methods
+
+### `canParse`
+
+```kotlin
+fun canParse(content: String): Boolean
+```
+
+Inspects the raw lyrics string and returns `true` if this parser is capable of handling its format. This method is called by `AutoParser` to select the correct parser automatically, and can also be used directly when you want to validate content before parsing.
+
+<ParamField path="content" type="String" required>
+  The full raw lyrics string to inspect. Examine headers, structure, or magic bytes to determine format compatibility.
+</ParamField>
+
+**Returns** `true` if the parser can handle this content, `false` otherwise.
+
+---
+
+### `parse(lines: List<String>)`
+
+```kotlin
+fun parse(lines: List<String>): SyncedLyrics
+```
+
+Parses a pre-split list of lines into a [`SyncedLyrics`](/api/synced-lyrics) object.
+
+<ParamField path="lines" type="List<String>" required>
+  The lyrics content already split into individual lines.
+</ParamField>
+
+**Returns** a `SyncedLyrics` instance containing the parsed lines and metadata.
+
+<Note>
+  The default implementation joins `lines` with `"\n"` and forwards to `parse(content: String)`. If you implement the `String` overload, you get this for free and do not need to override it.
+</Note>
+
+---
+
+### `parse(content: String)`
+
+```kotlin
+fun parse(content: String): SyncedLyrics
+```
+
+Parses a single multi-line string into a [`SyncedLyrics`](/api/synced-lyrics) object.
+
+<ParamField path="content" type="String" required>
+  The full raw lyrics string, with lines separated by `"\n"`.
+</ParamField>
+
+**Returns** a `SyncedLyrics` instance containing the parsed lines and metadata.
+
+<Note>
+  The default implementation splits `content` on `'\n'` and forwards to `parse(lines: List<String>)`. If you implement the `List<String>` overload, you get this for free and do not need to override it.
+</Note>
+
+## Implementing one parse overload is enough
+
+Because the two `parse` overloads each delegate to the other by default, implementing **exactly one** of them is sufficient. The unused overload will call through to your implementation automatically.
+
+<Tip>
+  Prefer implementing `parse(content: String)` when your parsing logic uses regular expressions or index-based scanning on the raw text. Prefer `parse(lines: List<String>)` when your logic is inherently line-by-line (e.g., LRC tag stripping). Either choice works — just don't implement both with mutual calls or you'll get a stack overflow.
+</Tip>
+
+## Minimal custom implementation
+
+```kotlin
+class MyParser : ILyricsParser {
+    override fun canParse(content: String): Boolean =
+        content.startsWith("#MY_FORMAT")
+
+    override fun parse(content: String): SyncedLyrics {
+        // parse and return
+        return SyncedLyrics(lines = emptyList())
+    }
+}
+```
+
+`parse(lines: List<String>)` is not overridden here — it will automatically join the list and call your `parse(content: String)` implementation.
+
+## Built-in parsers
+
+All built-in parsers implement `ILyricsParser`. You can use them directly or register them with `AutoParser`.
+
+<CardGroup cols={2}>
+  <Card title="EnhancedLrcParser" icon="music">
+    Parses standard and enhanced (syllable-timed) LRC files. Declared as an `object` singleton.
+  </Card>
+  <Card title="TTMLParser" icon="code">
+    Parses TTML/Apple Music lyrics XML. Instantiated as a `class` to accept an optional `fallbackPhoneticProvider`.
+  </Card>
+  <Card title="LyricifySyllableParser" icon="list">
+    Parses the Lyricify Syllable JSON format. Declared as an `object` singleton.
+  </Card>
+  <Card title="KugouKrcParser" icon="file">
+    Parses Kugou KRC files. Declared as an `object` singleton.
+  </Card>
+</CardGroup>
+
+<Card title="AutoParser" icon="wand-magic-sparkles">
+  A composite parser that tries each of the above in order and delegates to the first one whose `canParse()` returns `true`. Pass a custom `ILyricsParser` in its `parsers` list to extend it with your own format.
+</Card>
+
+## Using a custom parser with AutoParser
+
+```kotlin
+val parser = AutoParser(
+    parsers = listOf(
+        MyParser(),             // your format checked first
+        TTMLParser(),
+        LyricifySyllableParser,
+        EnhancedLrcParser,
+        KugouKrcParser,
+    )
+)
+
+val lyrics = parser.parse(rawContent)
+```
+
+<Info>
+  `AutoParser` itself implements `ILyricsParser`, so it can be used anywhere a parser is expected — including nested inside another `AutoParser`.
+</Info>
+
+## See also
+
+- [Writing a custom parser](/guides/custom-parser) — full step-by-step guide
+- [AutoParser](/parsers/auto-parser) — composite parser that auto-detects format
+- [SyncedLyrics](/api/synced-lyrics) — the data model returned by all parsers
