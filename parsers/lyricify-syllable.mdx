@@ -1,7 +1,7 @@
 ---
-title: "Parse Lyricify Syllable format lyrics"
+title: "Parse Lyricify Syllable Format Lyrics with Kotlin SDK"
 sidebarTitle: "Lyricify Syllable"
-description: "LyricifySyllableParser parses the Lyricify Syllable format used by Lyricify App, with syllable timing using (start_ms, duration_ms) notation and alignment codes."
+description: "LyricifySyllableParser handles the Lyricify Syllable format with (startMs,durationMs) notation and attribute codes for alignment and vocal type."
 ---
 
 Lyricify Syllable is the proprietary syllable-timing format used by the [Lyricify App](https://github.com/WXRIW/Lyricify-App). Each syllable is encoded as `word(startMs,durationMs)` inline with the lyric text, and an optional `[n]` attribute code at the start of each line controls whether it is a main vocal or an accompaniment, and which horizontal alignment it should use. `LyricifySyllableParser` is a Kotlin `object` (singleton) that decodes this format into strongly-typed `KaraokeLine` instances.
@@ -12,13 +12,13 @@ Lyricify Syllable is the proprietary syllable-timing format used by the [Lyricif
 
 Every syllable consists of its text immediately followed by `(startMs,durationMs)` in parentheses. The start time is absolute in milliseconds; the duration is also in milliseconds:
 
-```
+```text
 Hello(12340,200) World(12540,300)
 ```
 
 Whitespace that belongs to the syllable is included in the text portion before the opening parenthesis:
 
-```
+```text
 I (0,214)promise (214,345)that (559,185)
 ```
 
@@ -42,7 +42,7 @@ Attributes `0`–`5` produce `KaraokeLine.MainKaraokeLine`. Attributes `6` and a
 
 ### Full example
 
-```
+```text
 [4]I (0,214)promise (214,345)that (559,185)you'll (744,154)never (898,334)find (1232,202)another (1434,470)like (1904,363)me(2267,658)
 [2]我(0,214)保证(214,345)你(559,185)永远(744,154)找不到(898,334)另一个(1232,202)像我(1434,470)这样(1904,363)的(2267,658)
 [8]Background (800,200)vocals(1000,300)
@@ -54,7 +54,7 @@ The `[2]` line is a main vocal with `KaraokeAlignment.End`. The `[8]` line is an
 
 `LyricifySyllableParser` recognises the format when the content contains at least one match for the pattern:
 
-```
+```regex
 [a-zA-Z]+\s*\(\d+,\d+\)
 ```
 

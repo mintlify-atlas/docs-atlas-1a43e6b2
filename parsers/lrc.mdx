@@ -10,7 +10,7 @@ Standard LRC is the most widely supported lyrics format. Each line of lyrics is 
 
 A well-formed LRC file looks like this:
 
-```
+```lrc
 [ti:Song Title]
 [ar:Artist Name]
 [al:Album Name]
@@ -30,14 +30,14 @@ The following header tags are recognised and surfaced on the returned `SyncedLyr
 | `[ti:…]` | `SyncedLyrics.title` | Song title |
 | `[ar:…]` | `SyncedLyrics.artists` | Slash-separated artist names; colon separates role from name |
 | `[al:…]` | *(parsed but not stored on the model)* | Album name |
-| `[offset:…]` | Applied to all timestamps | Signed millisecond offset applied to every line |
-| `[length:…]` | *(parsed)* | Total track duration in `mm:ss.xx` format |
+| `[offset:…]` | *(parsed but not applied)* | Signed integer millisecond offset; recognised but not used to shift timestamps |
+| `[length:…]` | *(parsed but not stored)* | Total track duration as an integer in milliseconds |
 
 ### Multiple artists
 
 The `[ar:]` tag can hold several artists separated by `/`. An optional role prefix separated by `:` is also supported:
 
-```
+```lrc
 [ar:Lead Singer/Featuring Artist]
 [ar:Main:Lead Singer/Feature:Featuring Artist]
 ```
@@ -48,7 +48,7 @@ Each entry becomes an `Artist(role, name)` in `SyncedLyrics.artists`.
 
 A translation is encoded as a second line that shares the **same timestamp** as its primary line but carries different text content. The parser detects this automatically and stores it in `SyncedLine.translation`:
 
-```
+```lrc
 [00:12.34]Hello world
 [00:12.34]你好世界
 ```

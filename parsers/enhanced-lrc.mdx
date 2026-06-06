@@ -12,7 +12,7 @@ Enhanced LRC extends the standard LRC format by embedding per-syllable timestamp
 
 Syllable start times are expressed with `<mm:ss.xx>` angle brackets immediately before each syllable. The line-level timestamp `[mm:ss.xx]` still opens the line:
 
-```
+```lrc
 [00:12.34]<00:12.34>Hel<00:12.60>lo <00:12.90>World<00:13.20>
 ```
 
@@ -22,7 +22,7 @@ The trailing timestamp marks the end of the last syllable. Each `<time>text` pai
 
 Some older tools write syllable timestamps inside square brackets. This is also supported:
 
-```
+```lrc
 [00:12.34][00:12.34]Hel[00:12.60]lo [00:12.90]World
 ```
 
@@ -32,7 +32,7 @@ The parser detects which bracket style is in use per line and handles them ident
 
 Background or accompaniment lines are prefixed with `[bg:` instead of a timestamp. The background syllables are parsed just like main syllables and then attached to the immediately preceding `MainKaraokeLine.accompanimentLines`:
 
-```
+```lrc
 [00:12.34]<00:12.34>Main <00:12.90>Vocal<00:13.20>
 [bg:<00:12.50>Back<00:12.90>ground<00:13.10>]
 ```
@@ -41,7 +41,7 @@ Background or accompaniment lines are prefixed with `[bg:` instead of a timestam
 
 A `v1:` or `v2:` prefix after the line timestamp assigns the line to a singer, which controls horizontal alignment in dual-singer UIs:
 
-```
+```lrc
 [00:12.34]v1: <00:12.34>Singer one sings this
 [00:15.00]v2: <00:15.00>Singer two responds here
 ```
@@ -56,7 +56,7 @@ A `v1:` or `v2:` prefix after the line timestamp assigns the line to a singer, w
 
 Like standard LRC, a translation is encoded as a second line sharing the same timestamp. The parser matches any two lines whose start times are within 150 ms of each other and whose text content differs, merging the second into the `translation` field:
 
-```
+```lrc
 [00:12.34]<00:12.34>Hello <00:12.90>World<00:13.20>
 [00:12.34]你好世界
 ```

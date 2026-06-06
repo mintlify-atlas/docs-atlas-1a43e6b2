@@ -1,5 +1,5 @@
 ---
-title: "Parse Kugou KRC lyrics with KugouKrcParser"
+title: "Parsing Kugou KRC Lyrics Files with KugouKrcParser"
 sidebarTitle: "Kugou KRC"
 description: "KugouKrcParser handles Kugou Music KRC format with line and word-level timestamps, embedded phonetics, translations, and colon-delimited role markers."
 ---
@@ -12,13 +12,13 @@ KRC is the lyrics format used by Kugou Music. It extends the familiar LRC line-t
 
 Every lyric line opens with `[lineStartMs,lineDurationMs]`. Each word inside the line is preceded by `<wordOffsetMs,wordDurationMs,0>` where the offset is relative to the line start:
 
-```
+```text
 [lineStartMs,lineDurationMs]<offset,duration,0>word<offset,duration,0>text
 ```
 
 For example:
 
-```
+```text
 [3463,720]<0,352,0>How <352,368,0>long
 [4527,1352]<0,207,0>Can <207,225,0>we <432,328,0>stay <760,592,0>awake
 ```
@@ -29,7 +29,7 @@ The absolute start time of each word is calculated as `lineStartMs + offset`.
 
 A background line uses the `[bg:…]` prefix instead of a timestamp. The syllable timing format inside is identical to a main line. Background lines are parsed and attached to the `accompanimentLines` list of the immediately preceding `MainKaraokeLine`:
 
-```
+```text
 [12000,2000]<0,300,0>Main<300,400,0> vocal
 [bg:<0,300,0>Back<300,400,0>ground]
 ```
@@ -56,7 +56,7 @@ Phonetics are injected into `KaraokeSyllable.phonetic` only when the number of d
 
 `KugouKrcParser` identifies KRC content by requiring **both** patterns on the same line:
 
-```
+```regex
 ^\[\d+,\d+\]          // Line-level time tag
 <\d+,\d+,\d+>.{1}    // Word-level time tag with at least one character of text
 ```
@@ -103,7 +103,6 @@ for (line in lyrics.lines) {
 
 ```kotlin
 val krc = """
-    [offset:0]
     [3463,720]<0,352,0>How <352,368,0>long
     [4527,1352]<0,207,0>Can <207,225,0>we <432,328,0>stay <760,592,0>awake
 """.trimIndent()

@@ -1,7 +1,7 @@
 ---
-title: "Get started with Accompanist Lyrics Core"
+title: "Quickstart: Parse lyrics with Accompanist Lyrics Core"
 sidebarTitle: "Quickstart"
-description: "Parse your first lyrics file with Accompanist Lyrics Core in three steps using AutoParser, then access line text and timing data."
+description: "Parse your first lyrics file with Accompanist Lyrics Core using AutoParser, then access syllable timing, translations, and export to LRC."
 ---
 
 Accompanist Lyrics Core is designed so that the most common use case — reading a lyrics string from a file or network response and getting structured, timed lines back — requires almost no configuration. The following walkthrough takes you from zero to a fully navigable `SyncedLyrics` object, then shows how to look up the active line by playback time and export the result to LRC.
@@ -94,6 +94,12 @@ Accompanist Lyrics Core is designed so that the most common use case — reading
                     val bgText = accompaniment.syllables.joinToString("") { it.content }
                     println("  ↳ Background: $bgText")
                 }
+            }
+            is KaraokeLine.AccompanimentKaraokeLine -> {
+                // Stand-alone accompaniment/background vocal line
+                val bgText = line.syllables.joinToString("") { it.content }
+                println("${line.start}ms – ${line.end}ms (background): $bgText")
+                line.translation?.let { println("  ↳ Translation: $it") }
             }
         }
     }

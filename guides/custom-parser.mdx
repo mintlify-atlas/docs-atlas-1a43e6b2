@@ -1,7 +1,7 @@
 ---
-title: "Add a custom lyrics format parser to AutoParser"
+title: "Write a custom lyrics parser and register it with AutoParser"
 sidebarTitle: "Custom Parser"
-description: "Implement ILyricsParser to add support for any custom lyrics format, then register it with AutoParser to enable automatic detection alongside built-in parsers."
+description: "Implement ILyricsParser to support any custom lyrics format, then register it with AutoParser for automatic detection alongside built-in parsers."
 ---
 
 Accompanist Lyrics Core ships with parsers for TTML, Lyricify Syllable, Enhanced LRC, and Kugou KRC. If you need to consume a proprietary or niche format that none of those cover, you can implement the `ILyricsParser` interface and plug it straight into `AutoParser` — no forking required.
@@ -19,7 +19,7 @@ Accompanist Lyrics Core ships with parsers for TTML, Lyricify Syllable, Enhanced
 
 ## Implementing `ILyricsParser`
 
-The `ILyricsParser` interface has three methods, but you only need to implement two of them:
+The `ILyricsParser` interface has three methods, but you only need to implement `canParse` and ONE of the two `parse` overloads — each overload has a default body that delegates to the other:
 
 ```kotlin
 interface ILyricsParser {

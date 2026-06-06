@@ -119,7 +119,7 @@ object MyExporter : ILyricsExporter {
 
         // Write header block
         if (lyrics.title.isNotEmpty()) sb.appendLine("[ti:${lyrics.title}]")
-        for (artist in lyrics.artists) sb.appendLine("[ar:${artist.name}]")
+        lyrics.artists?.forEach { artist -> sb.appendLine("[ar:${artist.name}]") }
 
         // Write lyric lines …
 

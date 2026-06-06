@@ -1,7 +1,7 @@
 ---
-title: "ILyricsParser: implement a custom lyrics parser"
+title: "ILyricsParser: interface for custom lyrics parsers"
 sidebarTitle: "ILyricsParser"
-description: "ILyricsParser is the interface all lyrics parsers implement. Override canParse() and one parse() overload to add support for any custom or built-in lyrics format."
+description: "ILyricsParser is the interface every lyrics parser implements. Provide canParse() and one parse() overload to support any custom or built-in lyrics format."
 ---
 
 `ILyricsParser` is the core interface every lyrics parser in Accompanist Lyrics Core implements. It defines a format-detection method and two mutually-delegating `parse` overloads, so you only need to provide one parsing implementation — the other is wired up automatically via the default method bodies.

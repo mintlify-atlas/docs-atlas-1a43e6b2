@@ -1,5 +1,5 @@
 ---
-title: "KaraokeLine: syllable-level lyrics line types"
+title: "KaraokeLine: sealed interface for karaoke lyrics lines"
 sidebarTitle: "KaraokeLine"
 description: "KaraokeLine is a sealed interface for syllable-level lyrics. Its two subtypes are MainKaraokeLine for lead vocals and AccompanimentKaraokeLine for backing."
 ---
@@ -176,7 +176,7 @@ data class AccompanimentKaraokeLine(
 </ParamField>
 
 <ParamField path="end" type="Int" required>
-  End time in milliseconds. Must be ≥ `start`.
+  End time in milliseconds. Must be ≥ `start`; otherwise construction throws `IllegalArgumentException`.
 </ParamField>
 
 <ParamField path="phonetic" type="String?" default="null">
@@ -224,7 +224,7 @@ fun KaraokeLine.copy(
 ): KaraokeLine
 ```
 
-A unified copy helper that works across both `KaraokeLine` subtypes without requiring a `when` expression. Delegates to the data class `copy()` of the underlying concrete type, preserving the runtime type.
+A **top-level extension function** (not a data class method) that provides a unified copy helper across both `KaraokeLine` subtypes without requiring a `when` expression. Delegates to the data class `copy()` of the underlying concrete type, preserving the runtime type.
 
 <Note>
 This extension does **not** expose `accompanimentLines`. To change `accompanimentLines` on a `MainKaraokeLine`, cast to `MainKaraokeLine` and call its data class `copy()` directly.

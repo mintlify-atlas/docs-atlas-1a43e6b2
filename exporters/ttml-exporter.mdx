@@ -35,10 +35,7 @@ The exported document always starts with an XML declaration and a `<tt>` root el
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<tt xmlns="http://www.w3.org/ns/ttml"
-    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
-    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
-    itunes:timing="Word">
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word">
   <head>
     <!-- agent metadata, only present for multi-voice songs -->
   </head>
@@ -59,14 +56,10 @@ The `<body dur>` value and `<div end>` value are both derived from the maximum `
 Each `KaraokeLine.MainKaraokeLine` becomes a `<p>` element whose children are individual `<span>` elements, one per `KaraokeSyllable`:
 
 ```xml
-<p begin="00:12.340" end="00:15.000">
-  <span begin="00:12.340" end="00:12.600">Hel</span>
-  <span begin="00:12.600" end="00:12.900">lo </span>
-  <span begin="00:12.900" end="00:13.200">World</span>
-</p>
+<p begin="00:12.340" end="00:15.000"><span begin="00:12.340" end="00:12.600">Hel</span><span begin="00:12.600" end="00:12.900">lo</span> <span begin="00:12.900" end="00:13.200">World</span></p>
 ```
 
-Syllable content is trimmed before writing. If the original content ends with a space, a literal space character is appended after the closing `</span>` tag to preserve word spacing.
+Syllable content is trimmed before writing. If the original content ends with a space, a literal space character is appended after the closing `</span>` tag to preserve word spacing. All spans and text content are written inline within the `<p>` element — there are no additional newlines between spans.
 
 ### SyncedLine — plain `<p>` elements
 
@@ -81,12 +74,7 @@ A `SyncedLine` (no syllable data) is written as a `<p>` element with its text co
 When any line carries a `translation` string, a `<span>` with `ttm:role="x-translation"` and `xml:lang="zh-CN"` is appended at the end of the `<p>` element, after all syllable spans:
 
 ```xml
-<p begin="00:12.340" end="00:15.000">
-  <span begin="00:12.340" end="00:12.600">Hel</span>
-  <span begin="00:12.600" end="00:12.900">lo </span>
-  <span begin="00:12.900" end="00:13.200">World</span>
-  <span ttm:role="x-translation" xml:lang="zh-CN">你好，世界</span>
-</p>
+<p begin="00:12.340" end="00:15.000"><span begin="00:12.340" end="00:12.600">Hel</span><span begin="00:12.600" end="00:12.900">lo</span> <span begin="00:12.900" end="00:13.200">World</span><span ttm:role="x-translation" xml:lang="zh-CN">你好，世界</span></p>
 ```
 
 ### Background vocal spans (`x-bg`)
@@ -94,14 +82,7 @@ When any line carries a `translation` string, a `<span>` with `ttm:role="x-trans
 Background vocals stored as `AccompanimentKaraokeLine` entries are written as `<span ttm:role="x-bg">` elements inside the parent `<p>`. Each background span contains its own syllable `<span>` children and an optional translation span:
 
 ```xml
-<p begin="00:12.340" end="00:15.000">
-  <span begin="00:12.340" end="00:12.600">Main</span>
-  <span begin="00:12.600" end="00:13.200">vocal</span>
-  <span ttm:role="x-bg" begin="00:14.000" end="00:14.600">
-    <span begin="00:14.000" end="00:14.300">Back</span>
-    <span begin="00:14.300" end="00:14.600">ground</span>
-  </span>
-</p>
+<p begin="00:12.340" end="00:15.000"><span begin="00:12.340" end="00:12.600">Main</span><span begin="00:12.600" end="00:13.200">vocal</span><span ttm:role="x-bg" begin="00:14.000" end="00:14.600"><span begin="00:14.000" end="00:14.300">Back</span><span begin="00:14.300" end="00:14.600">ground</span></span></p>
 ```
 
 ## Multi-voice support
@@ -123,13 +104,8 @@ When both alignments are found, two agent declarations are added to `<head><meta
 ```
 
 ```xml
-<p begin="00:12.340" end="00:15.000" ttm:agent="v1">
-  <span begin="00:12.340" end="00:12.600">Lead</span>
-  <span begin="00:12.600" end="00:13.200">vocal</span>
-</p>
-<p begin="00:15.000" end="00:17.500" ttm:agent="v2">
-  <span begin="00:15.000" end="00:15.600">Response</span>
-</p>
+<p begin="00:12.340" end="00:15.000" ttm:agent="v1"><span begin="00:12.340" end="00:12.600">Lead</span> <span begin="00:12.600" end="00:13.200">vocal</span></p>
+<p begin="00:15.000" end="00:17.500" ttm:agent="v2"><span begin="00:15.000" end="00:15.600">Response</span></p>
 ```
 
 <Note>
@@ -193,10 +169,7 @@ Expected output (condensed):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<tt xmlns="http://www.w3.org/ns/ttml"
-    xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
-    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
-    itunes:timing="Word">
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word">
   <head>
     <metadata>
       <ttm:agent type="person" xml:id="v1"/>
@@ -205,10 +178,8 @@ Expected output (condensed):
   </head>
   <body dur="00:15.800">
     <div begin="00:12.340" end="00:15.800">
-      <p begin="00:12.340" end="00:13.200" ttm:agent="v1">
-        <span begin="00:12.340" end="00:12.600">Lead</span> <span begin="00:12.600" end="00:13.200">vocal</span><span ttm:role="x-translation" xml:lang="zh-CN">主唱</span></p>
-      <p begin="00:15.000" end="00:15.800" ttm:agent="v2">
-        <span begin="00:15.000" end="00:15.800">Response</span></p>
+      <p begin="00:12.340" end="00:13.200" ttm:agent="v1"><span begin="00:12.340" end="00:12.600">Lead</span> <span begin="00:12.600" end="00:13.200">vocal</span><span ttm:role="x-translation" xml:lang="zh-CN">主唱</span></p>
+      <p begin="00:15.000" end="00:15.800" ttm:agent="v2"><span begin="00:15.000" end="00:15.800">Response</span></p>
     </div>
   </body>
 </tt>

@@ -1,7 +1,7 @@
 ---
 title: "Add phonetic romanization to lyrics with PhoneticProvider"
 sidebarTitle: "Phonetic Provider"
-description: "Implement PhoneticProvider to supply romanization or pronunciation annotations for lyrics. Configure TTMLParser and AutoParser to apply phonetics when TTML lacks them."
+description: "Implement PhoneticProvider to supply romanization or pronunciation annotations for lyrics, then wire it into TTMLParser or AutoParser as a fallback."
 ---
 
 Lyrics for CJK languages often include phonetic annotations — pinyin for Mandarin, romaji or furigana for Japanese, romanisation for Korean — to help listeners who cannot read the script. Accompanist Lyrics Core provides the `PhoneticProvider` interface so you can attach a romanisation library of your choice and have it populate phonetic fields automatically whenever the source TTML file does not already carry that data.
